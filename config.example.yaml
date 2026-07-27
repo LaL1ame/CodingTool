@@ -1,0 +1,17 @@
+# MewCode 配置文件示例
+# 将此文件复制为 config.yaml 并填入真实密钥
+
+providers:
+  - name: "Claude Sonnet"
+    protocol: anthropic            # 协议类型：anthropic 或 openai
+    model: claude-sonnet-4-6       # 模型 ID
+    base_url: https://api.anthropic.com
+    api_key: sk-ant-your-key-here
+    thinking: true                 # 是否启用扩展思考（仅 anthropic 协议有效）
+
+  - name: "GPT via OpenAI"
+    protocol: openai
+    model: gpt-4o
+    base_url: https://api.openai.com
+    api_key: sk-your-key-here
+    # thinking 字段可省略，默认 false

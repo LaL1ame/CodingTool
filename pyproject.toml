@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mewcode"
+version = "0.1.0"
+description = "CLI AI Coding Agent — a Claude Code-like interactive TUI assistant"
+requires-python = ">=3.10"
+dependencies = [
+    "textual>=0.52.0",
+    "httpx>=0.27.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+mewcode = "mewcode.main:main"
+
+[tool.setuptools.packages.find]
+include = ["mewcode*"]
