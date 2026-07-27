@@ -54,7 +54,8 @@
 **协议层**：封装各 LLM 协议的 HTTP 请求构造、SSE 事件流解析和增量数据统一。
 每种协议（Anthropic Messages API / OpenAI Chat Completions API）各自实现，对外输出
 统一的 `Delta` 对象（`text` / `thinking` / `done` / `error`）。
-Anthropic 协议在此层完成 extended thinking 增量的识别与丢弃。
+Anthropic 协议在此层完成 extended thinking 增量的**识别**（标记为 thinking 类型 Delta），
+**丢弃动作**由对话管理层（ChatManager）执行。
 这是唯一直接接触 HTTP 和 API 格式的层。
 
 **Provider 抽象层**：定义统一的 `BaseProvider` 抽象类，暴露异步流式聊天接口。
@@ -133,12 +134,11 @@ class ChatManager:
 ```python
 class BaseProvider(ABC):
     config: ProviderConfig
-    protocol: BaseProtocol
 
     @abstractmethod
     async def stream(messages) -> AsyncIterator[Delta]
 
-    @classmethod
+    @staticmethod
     def create(config) -> "BaseProvider"   # 工厂方法
 ```
 

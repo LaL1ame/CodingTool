@@ -6,6 +6,7 @@ import time
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Container
+from textual.widgets import Static
 
 from mewcode.chat.manager import ChatManager
 from mewcode.config import ProviderConfig
@@ -30,6 +31,14 @@ Screen {
     background: $panel;
 }
 
+#ready-hint {
+    dock: top;
+    height: 1;
+    padding: 0 1;
+    background: $panel;
+    color: $text-disabled;
+}
+
 #chat-area {
     height: 1fr;
     padding: 0 1;
@@ -48,6 +57,21 @@ Screen {
     padding: 0 2;
     background: $primary-darken-2;
     color: $text;
+}
+
+#status-bar #status-left {
+    width: auto;
+    content-align: left middle;
+}
+
+#status-bar #status-center {
+    width: 1fr;
+    content-align: center middle;
+}
+
+#status-bar #status-right {
+    width: auto;
+    content-align: right middle;
 }
 
 /* Provider selection screen */
@@ -131,6 +155,7 @@ class MewCodeApp(App):
         """构建界面布局。"""
         with Container(id="banner-container"):
             yield BannerWidget()
+        yield Static("Ready — type a message or /exit to quit", id="ready-hint")
         yield ChatArea(id="chat-area")
         with Container(id="input-container"):
             yield InputBox(id="message-input")

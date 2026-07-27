@@ -1,6 +1,6 @@
 """配置层：YAML 读取、校验、ProviderConfig 数据类。"""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
