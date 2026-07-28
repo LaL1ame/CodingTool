@@ -1,44 +1,54 @@
-"""MewCode 入口 —— 加载配置 → 启动 TUI。"""
+"""MewCode 入口。"""
 
 import os
 import sys
 from pathlib import Path
 
 from mewcode.config import ConfigError, load_config
-from mewcode.tui.app import MewCodeApp
-
-DEFAULT_CONFIG_NAME = "config.yaml"
+from mewcode.app import MewCodeApp
 
 
 def find_config() -> Path:
-    """查找配置文件：当前目录 > 用户目录。"""
-    cwd = Path.cwd() / DEFAULT_CONFIG_NAME
+    cwd = Path.cwd() / "config.yaml"
     if cwd.exists():
         return cwd
-
-    home = Path.home() / ".config" / "mewcode" / DEFAULT_CONFIG_NAME
+    home = Path.home() / ".config" / "mewcode" / "config.yaml"
     if home.exists():
         return home
-
-    # 回退到当前目录（加载时会报清晰的错误）
     return cwd
 
 
 def main() -> None:
-    """MewCode CLI 入口。"""
-    config_path = os.environ.get("MEWCODE_CONFIG", str(find_config()))
-
+    path = os.environ.get("MEWCODE_CONFIG", str(find_config()))
     try:
-        configs = load_config(config_path)
+        configs = load_config(path)
     except ConfigError as e:
         print(f"Configuration error: {e}", file=sys.stderr)
         sys.exit(1)
-
     if not configs:
         print("No providers configured.", file=sys.stderr)
         sys.exit(1)
 
-    app = MewCodeApp(configs)
+    # 单 provider 直接进对话；多 provider 简单选择
+    if len(configs) == 1:
+        cfg = configs[0]
+    else:
+        print("Multiple providers found:")
+        for i, c in enumerate(configs):
+            print(f"  [{i+1}] {c.name}  ({c.protocol})  {c.model}")
+        while True:
+            try:
+                choice = input("Select (number): ").strip()
+                idx = int(choice) - 1
+                if 0 <= idx < len(configs):
+                    cfg = configs[idx]
+                    break
+            except (ValueError, EOFError, KeyboardInterrupt):
+                print("Cancelled.")
+                sys.exit(1)
+            print(f"Enter 1-{len(configs)}")
+
+    app = MewCodeApp(cfg)
     app.run()
 
 
