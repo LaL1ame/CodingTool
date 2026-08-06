@@ -1,5 +1,5 @@
 import pytest
-from mewcode.tools.glob_tool import GlobTool
+from codepilot.tools.glob_tool import GlobTool
 
 
 @pytest.fixture

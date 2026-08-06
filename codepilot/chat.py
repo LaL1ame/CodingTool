@@ -4,11 +4,11 @@ import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
-from mewcode.agent import Agent
-from mewcode.protocols import Delta
+from codepilot.agent import Agent
+from codepilot.protocols import Delta
 
 SYSTEM_PROMPT = (
-    "You are MewCode, a CLI AI coding assistant. "
+    "You are CodePilot, a CLI AI coding assistant. "
     "You help with programming tasks, answer technical questions, "
     "and provide code examples. Be concise but thorough."
 )

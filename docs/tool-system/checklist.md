@@ -1,4 +1,4 @@
-# MewCode 工具系统 Checklist
+# CodePilot 工具系统 Checklist
 
 > 每一项通过运行代码或观察行为来验证，聚焦系统行为。
 
@@ -84,14 +84,14 @@
 
 ## 集成检查
 
-- [ ] `mewcode.tools` 子包可独立导入
-  - 验证：`python -c "from mewcode.tools import Tool, ToolRegistry, ReadTool; print('OK')"`
+- [ ] `codepilot.tools` 子包可独立导入
+  - 验证：`python -c "from codepilot.tools import Tool, ToolRegistry, ReadTool; print('OK')"`
 
-- [ ] `mewcode.agent` 导入不触发循环依赖
-  - 验证：`python -c "from mewcode.agent import Agent; print('OK')"`
+- [ ] `codepilot.agent` 导入不触发循环依赖
+  - 验证：`python -c "from codepilot.agent import Agent; print('OK')"`
 
-- [ ] `python -m mewcode` 可正常启动（导入无错误）
-  - 验证：`python -c "import mewcode; print('OK')"`
+- [ ] `python -m codepilot` 可正常启动（导入无错误）
+  - 验证：`python -c "import codepilot; print('OK')"`
 
 ## 验证与测试
 
@@ -123,5 +123,5 @@
 - [ ] **E2E-6: 超时恢复** — 发送 "执行 sleep 999" → 超时后 `✕ Error: 超时` → 模型正常应对
   - 验收：会话不卡死
 
-> 注：标记为"需真实 API key"的条目无法通过单元测试覆盖，需在终端中运行 `python -m mewcode` 进行人工验收。
+> 注：标记为"需真实 API key"的条目无法通过单元测试覆盖，需在终端中运行 `python -m codepilot` 进行人工验收。
 > MVP checklists（配置加载、TUI 布局、Markdown 渲染等）在本期继续适用，此处不重复列出。

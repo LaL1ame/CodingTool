@@ -3,8 +3,8 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
-from mewcode.config import ProviderConfig
-from mewcode.protocols import AnthropicProtocol, Delta, OpenAIProtocol
+from codepilot.config import ProviderConfig
+from codepilot.protocols import AnthropicProtocol, Delta, OpenAIProtocol
 
 
 class BaseProvider(ABC):

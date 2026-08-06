@@ -1,21 +1,21 @@
-"""MewCode 入口。"""
+"""CodePilot 入口。"""
 
 import os
 import sys
 from pathlib import Path
 
-from mewcode.config import ConfigError, load_config
-from mewcode.providers import BaseProvider
-from mewcode.agent import Agent
-from mewcode.tools import ToolRegistry, ReadTool, WriteTool, EditTool, GlobTool, GrepTool, RunTool
-from mewcode.app import MewCodeApp
+from codepilot.config import ConfigError, load_config
+from codepilot.providers import BaseProvider
+from codepilot.agent import Agent
+from codepilot.tools import ToolRegistry, ReadTool, WriteTool, EditTool, GlobTool, GrepTool, RunTool
+from codepilot.app import CodePilotApp
 
 
 def find_config() -> Path:
     cwd = Path.cwd() / "config.yaml"
     if cwd.exists():
         return cwd
-    home = Path.home() / ".config" / "mewcode" / "config.yaml"
+    home = Path.home() / ".config" / "codepilot" / "config.yaml"
     if home.exists():
         return home
     return cwd
@@ -66,7 +66,7 @@ def main() -> None:
     registry = _build_registry(workspace)
     agent = Agent(provider=provider, registry=registry, workspace=workspace)
 
-    app = MewCodeApp(agent)
+    app = CodePilotApp(agent)
     # 注入确认回调到 RunTool
     run_tool = registry.get("run")
     if run_tool is not None:

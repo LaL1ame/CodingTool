@@ -1,6 +1,6 @@
 """工具注册中心 — 集中登记工具 + 协议格式转换。"""
 
-from mewcode.tools.base import Tool
+from codepilot.tools.base import Tool
 
 
 class ToolRegistry:

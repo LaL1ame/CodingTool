@@ -1,5 +1,5 @@
 import pytest
-from mewcode.tools.edit import EditTool
+from codepilot.tools.edit import EditTool
 
 
 @pytest.fixture

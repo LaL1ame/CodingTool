@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from mewcode.protocols import ToolResult
-from mewcode.tools.base import Tool
+from codepilot.protocols import ToolResult
+from codepilot.tools.base import Tool
 
 GLOB_LIMIT = 500
 

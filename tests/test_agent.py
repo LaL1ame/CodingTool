@@ -6,12 +6,12 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from mewcode.protocols import Delta, ToolCall, ToolResult
-from mewcode.providers import BaseProvider
-from mewcode.config import ProviderConfig
-from mewcode.agent import Agent
-from mewcode.tools.registry import ToolRegistry
-from mewcode.tools.base import Tool
+from codepilot.protocols import Delta, ToolCall, ToolResult
+from codepilot.providers import BaseProvider
+from codepilot.config import ProviderConfig
+from codepilot.agent import Agent
+from codepilot.tools.registry import ToolRegistry
+from codepilot.tools.base import Tool
 
 
 class _MockProvider(BaseProvider):

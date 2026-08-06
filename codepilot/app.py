@@ -8,8 +8,8 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, RichLog, Static
 
-from mewcode.agent import Agent
-from mewcode.chat import ChatManager
+from codepilot.agent import Agent
+from codepilot.chat import ChatManager
 
 CAT = r"""
   ╱|、
@@ -113,7 +113,7 @@ class ToolRow(Static):
 
 # ── 主 App ────────────────────────────────────────────────────
 
-class MewCodeApp(App):
+class CodePilotApp(App):
     BINDINGS = [("ctrl+c", "quit", "退出")]
 
     def __init__(self, agent: Agent) -> None:
@@ -137,7 +137,7 @@ class MewCodeApp(App):
 
         log = self.query_one("#chat", RichLog)
         log.write(f"[bold cyan]{CAT}[/bold cyan]\n")
-        log.write(f"[bold]MewCode[/bold] v{VERSION}  |  {cwd}\n")
+        log.write(f"[bold]CodePilot[/bold] v{VERSION}  |  {cwd}\n")
         log.write(f"[dim]{cfg.name} · {cfg.model}  ({proto}) — Ready[/dim]\n")
         self._update_status()
 
@@ -165,7 +165,7 @@ class MewCodeApp(App):
         inp.disabled = True
 
         log.write(f"\n[bold green]❯ You[/bold green]  {text}")
-        log.write("[bold]🤖 MewCode[/bold] ")
+        log.write("[bold]🤖 CodePilot[/bold] ")
 
         # 整个对话循环放进 Worker，不阻塞 Textual 消息泵
         self._streaming = True

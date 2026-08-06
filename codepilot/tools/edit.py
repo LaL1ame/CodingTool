@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from mewcode.protocols import ToolResult
-from mewcode.tools.base import Tool, validate_path
+from codepilot.protocols import ToolResult
+from codepilot.tools.base import Tool, validate_path
 
 
 class EditTool(Tool):

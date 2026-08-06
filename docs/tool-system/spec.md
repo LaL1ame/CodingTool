@@ -1,8 +1,8 @@
-# MewCode 工具系统 Spec
+# CodePilot 工具系统 Spec
 
 ## 背景
 
-MewCode MVP 已跑通纯文本流式对话，支持 Anthropic/OpenAI 双协议。但模型当前只能"说"不能"做"——无法读文件、改代码、跑命令，停留在聊天机器人阶段。
+CodePilot MVP 已跑通纯文本流式对话，支持 Anthropic/OpenAI 双协议。但模型当前只能"说"不能"做"——无法读文件、改代码、跑命令，停留在聊天机器人阶段。
 
 本阶段要装上工具系统，让模型成为能读写代码、搜索文件、执行命令的 Coding Agent。这是从 "Chat" 到 "Agent" 的关键一步。
 

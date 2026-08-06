@@ -5,9 +5,9 @@ import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
-from mewcode.protocols import Delta, ToolCall, ToolResult
-from mewcode.providers import BaseProvider
-from mewcode.tools.registry import ToolRegistry
+from codepilot.protocols import Delta, ToolCall, ToolResult
+from codepilot.providers import BaseProvider
+from codepilot.tools.registry import ToolRegistry
 
 
 class Agent:

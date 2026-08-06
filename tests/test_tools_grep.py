@@ -1,5 +1,5 @@
 import pytest
-from mewcode.tools.grep_tool import GrepTool
+from codepilot.tools.grep_tool import GrepTool
 
 
 @pytest.fixture

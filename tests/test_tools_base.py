@@ -3,7 +3,7 @@
 import pytest
 from pathlib import Path
 
-from mewcode.tools.base import Tool, validate_path
+from codepilot.tools.base import Tool, validate_path
 
 
 class _MinimalTool(Tool):
@@ -15,7 +15,7 @@ class _MinimalTool(Tool):
     def parameters(self): return {"type": "object", "properties": {}}
 
     async def execute(self, **kwargs):
-        from mewcode.protocols import ToolResult
+        from codepilot.protocols import ToolResult
         return ToolResult(call_id="", name=self.name, output="done")
 
 

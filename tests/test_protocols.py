@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from mewcode.protocols import AnthropicProtocol, OpenAIProtocol, Delta, ToolCall
+from codepilot.protocols import AnthropicProtocol, OpenAIProtocol, Delta, ToolCall
 
 
 # ── SSE 模拟工具 ──────────────────────────────────────────────

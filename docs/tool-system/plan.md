@@ -1,4 +1,4 @@
-# MewCode 工具系统 Plan
+# CodePilot 工具系统 Plan
 
 ## 架构概览
 
@@ -152,7 +152,7 @@ class Agent:
 | `grep_tool.py` | GrepTool — 正则搜索 + -i 大小写控制，250 上限，跳过 .git，30s 超时 |
 | `run.py` | RunTool — asyncio.create_subprocess_shell + confirm_callback，120s 超时，8000 字符上限 |
 
-**依赖：** mewcode.protocols (ToolResult)
+**依赖：** codepilot.protocols (ToolResult)
 
 ### agent.py [新建]
 
@@ -171,7 +171,7 @@ Agent 负责单轮对话的工具编排：
    f. 第二轮 `provider.stream(messages + tool_results, tools)` → 流式产出 text delta 到 done
 4. 若无 tool_calls → 直接产出 text delta 到 done（与 MVP 纯文本路径一致）
 
-**依赖：** mewcode.providers, mewcode.tools, mewcode.protocols
+**依赖：** codepilot.providers, codepilot.tools, codepilot.protocols
 
 ### chat.py [修改]
 
@@ -181,7 +181,7 @@ Agent 负责单轮对话的工具编排：
 - tool_result delta → 透传，不写入 history（工具结果由 Agent 负责注入第二轮请求的消息）
 - 自身专注于历史管理和 context 构建
 
-**依赖：** mewcode.agent, mewcode.protocols
+**依赖：** codepilot.agent, codepilot.protocols
 
 ### app.py [修改]
 
@@ -196,14 +196,14 @@ Agent 负责单轮对话的工具编排：
   - 返回 bool；选"始终允许"后，后续 `run` 调用自动跳过确认
 - 创建 RunTool 时传入 `self._confirm_command` 作为 `confirm_callback`
 
-**依赖：** 新增 mewcode.tools, mewcode.agent
+**依赖：** 新增 codepilot.tools, codepilot.agent
 
 ### main.py [修改]
 
 - 创建 workspace 路径（`Path.cwd()`），组装 Registry → Agent → ChatManager → App 依赖链
 - 其余启动逻辑（配置加载、provider 选择）不变
 
-**依赖：** 新增 mewcode.tools, mewcode.agent
+**依赖：** 新增 codepilot.tools, codepilot.agent
 
 ## 模块交互
 
@@ -260,7 +260,7 @@ Agent → registry.get("run").execute(command, confirm_callback=...)
 ## 文件组织
 
 ```
-mewcode/
+codepilot/
 ├── __init__.py              (不变)
 ├── __main__.py              (不变)
 ├── config.py                [修改] + ToolConfig（timeout 覆盖值）

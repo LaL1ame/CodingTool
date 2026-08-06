@@ -4,8 +4,8 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from mewcode.protocols import ToolResult
-from mewcode.tools.base import Tool
+from codepilot.protocols import ToolResult
+from codepilot.tools.base import Tool
 
 OUTPUT_LIMIT = 8000
 

@@ -2,9 +2,9 @@
 
 import pytest
 
-from mewcode.tools.base import Tool
-from mewcode.tools.registry import ToolRegistry
-from mewcode.protocols import ToolResult
+from codepilot.tools.base import Tool
+from codepilot.tools.registry import ToolRegistry
+from codepilot.protocols import ToolResult
 
 
 class _FakeTool(Tool):

@@ -1,24 +1,24 @@
-# MewCode 工具系统 Tasks
+# CodePilot 工具系统 Tasks
 
 ## 文件清单
 
 | 操作 | 文件 | 职责 |
 |------|------|------|
-| 新建 | `mewcode/tools/__init__.py` | 聚合导出 |
-| 新建 | `mewcode/tools/base.py` | Tool ABC + validate_path |
-| 新建 | `mewcode/tools/registry.py` | ToolRegistry + 格式转换 |
-| 新建 | `mewcode/tools/read.py` | ReadTool |
-| 新建 | `mewcode/tools/write.py` | WriteTool |
-| 新建 | `mewcode/tools/edit.py` | EditTool |
-| 新建 | `mewcode/tools/glob_tool.py` | GlobTool |
-| 新建 | `mewcode/tools/grep_tool.py` | GrepTool |
-| 新建 | `mewcode/tools/run.py` | RunTool |
-| 新建 | `mewcode/agent.py` | Agent 工具编排 |
-| 修改 | `mewcode/protocols.py` | +ToolCall, ToolResult, Delta 扩展, 双协议工具解析 |
-| 修改 | `mewcode/providers.py` | stream() 加 tools 参数 |
-| 修改 | `mewcode/chat.py` | ChatManager 委托 Agent |
-| 修改 | `mewcode/app.py` | 工具行渲染 + 命令确认列表选择 |
-| 修改 | `mewcode/main.py` | 组装 Agent + Registry |
+| 新建 | `codepilot/tools/__init__.py` | 聚合导出 |
+| 新建 | `codepilot/tools/base.py` | Tool ABC + validate_path |
+| 新建 | `codepilot/tools/registry.py` | ToolRegistry + 格式转换 |
+| 新建 | `codepilot/tools/read.py` | ReadTool |
+| 新建 | `codepilot/tools/write.py` | WriteTool |
+| 新建 | `codepilot/tools/edit.py` | EditTool |
+| 新建 | `codepilot/tools/glob_tool.py` | GlobTool |
+| 新建 | `codepilot/tools/grep_tool.py` | GrepTool |
+| 新建 | `codepilot/tools/run.py` | RunTool |
+| 新建 | `codepilot/agent.py` | Agent 工具编排 |
+| 修改 | `codepilot/protocols.py` | +ToolCall, ToolResult, Delta 扩展, 双协议工具解析 |
+| 修改 | `codepilot/providers.py` | stream() 加 tools 参数 |
+| 修改 | `codepilot/chat.py` | ChatManager 委托 Agent |
+| 修改 | `codepilot/app.py` | 工具行渲染 + 命令确认列表选择 |
+| 修改 | `codepilot/main.py` | 组装 Agent + Registry |
 | 新建 | `tests/__init__.py` | 测试包 |
 | 新建 | `tests/test_tools_base.py` | validate_path + Tool 接口 |
 | 新建 | `tests/test_tools_registry.py` | 注册 + 格式转换 |
@@ -38,24 +38,24 @@
 
 ### T1: 创建 tools/ 子包 + Tool 抽象接口
 
-**文件：** `mewcode/tools/__init__.py`, `mewcode/tools/base.py`
+**文件：** `codepilot/tools/__init__.py`, `codepilot/tools/base.py`
 **依赖：** 无
 **步骤：**
-1. 创建 `mewcode/tools/` 目录
+1. 创建 `codepilot/tools/` 目录
 2. 创建 `__init__.py`，暂为空（后续逐步添加导出）
 3. 创建 `base.py`：
-   - 从 `mewcode.protocols` 导入 `ToolResult`（避免循环引用）
+   - 从 `codepilot.protocols` 导入 `ToolResult`（避免循环引用）
    - 定义 `Tool` ABC：`name`(property), `description`(property), `parameters`(property), `execute(**kwargs) → ToolResult`
    - 定义 `validate_path(relative_path: str, workspace_root: Path) → Path`：
      - 解析 `workspace_root / relative_path` → `resolve()`
      - 校验 `resolved_path.is_relative_to(workspace_root)`
      - 通过返回 resolved_path，失败抛 `ValueError("路径超出工作目录: {path}")`
 
-**验证：** `python -c "from mewcode.tools.base import Tool, validate_path; print('OK')"`
+**验证：** `python -c "from codepilot.tools.base import Tool, validate_path; print('OK')"`
 
 ### T2: 实现 ToolRegistry
 
-**文件：** `mewcode/tools/registry.py`
+**文件：** `codepilot/tools/registry.py`
 **依赖：** T1
 **步骤：**
 1. 创建 `registry.py`
@@ -70,7 +70,7 @@
 
 **验证：**
 ```python
-from mewcode.tools import Tool, ToolRegistry
+from codepilot.tools import Tool, ToolRegistry
 r = ToolRegistry()
 assert r.get("nonexistent") is None
 ```
@@ -81,7 +81,7 @@ assert r.get("nonexistent") is None
 
 ### T3: ReadTool
 
-**文件：** `mewcode/tools/read.py`
+**文件：** `codepilot/tools/read.py`
 **依赖：** T1, T2
 **步骤：**
 1. 创建 `read.py`，实现 `ReadTool(Tool)`：
@@ -99,7 +99,7 @@ assert r.get("nonexistent") is None
 
 **验证：**
 ```python
-from mewcode.tools.read import ReadTool
+from codepilot.tools.read import ReadTool
 from pathlib import Path
 import tempfile, os
 d = tempfile.mkdtemp()
@@ -112,7 +112,7 @@ assert "line1" in r.output
 
 ### T4: WriteTool
 
-**文件：** `mewcode/tools/write.py`
+**文件：** `codepilot/tools/write.py`
 **依赖：** T1, T2
 **步骤：**
 1. 创建 `write.py`，实现 `WriteTool(Tool)`：
@@ -127,7 +127,7 @@ assert "line1" in r.output
 
 **验证：**
 ```python
-from mewcode.tools.write import WriteTool
+from codepilot.tools.write import WriteTool
 from pathlib import Path
 import tempfile
 d = tempfile.mkdtemp()
@@ -139,7 +139,7 @@ assert Path(d, "sub/deep/hello.py").read_text() == "print('hi')"
 
 ### T5: EditTool
 
-**文件：** `mewcode/tools/edit.py`
+**文件：** `codepilot/tools/edit.py`
 **依赖：** T1, T2
 **步骤：**
 1. 创建 `edit.py`，实现 `EditTool(Tool)`：
@@ -156,7 +156,7 @@ assert Path(d, "sub/deep/hello.py").read_text() == "print('hi')"
 
 **验证：**
 ```python
-from mewcode.tools.edit import EditTool
+from codepilot.tools.edit import EditTool
 from pathlib import Path
 import tempfile, os
 d = tempfile.mkdtemp()
@@ -176,7 +176,7 @@ assert r.output and "Replaced" in r.output
 
 ### T6: GlobTool
 
-**文件：** `mewcode/tools/glob_tool.py`
+**文件：** `codepilot/tools/glob_tool.py`
 **依赖：** T1, T2
 **步骤：**
 1. 创建 `glob_tool.py`，实现 `GlobTool(Tool)`：
@@ -193,7 +193,7 @@ assert r.output and "Replaced" in r.output
 
 **验证：**
 ```python
-from mewcode.tools.glob_tool import GlobTool
+from codepilot.tools.glob_tool import GlobTool
 from pathlib import Path
 t = GlobTool(workspace=Path.cwd())
 r = t.execute(pattern="**/*.py")
@@ -202,7 +202,7 @@ assert ".py" in r.output or r.output == ""
 
 ### T7: GrepTool
 
-**文件：** `mewcode/tools/grep_tool.py`
+**文件：** `codepilot/tools/grep_tool.py`
 **依赖：** T1, T2
 **步骤：**
 1. 创建 `grep_tool.py`，实现 `GrepTool(Tool)`：
@@ -218,16 +218,16 @@ assert ".py" in r.output or r.output == ""
 
 **验证：**
 ```python
-from mewcode.tools.grep_tool import GrepTool
+from codepilot.tools.grep_tool import GrepTool
 from pathlib import Path
 t = GrepTool(workspace=Path.cwd())
-r = t.execute(pattern="import", path="mewcode")
+r = t.execute(pattern="import", path="codepilot")
 assert "import" in r.output
 ```
 
 ### T8: RunTool
 
-**文件：** `mewcode/tools/run.py`
+**文件：** `codepilot/tools/run.py`
 **依赖：** T1, T2
 **步骤：**
 1. 创建 `run.py`，实现 `RunTool(Tool)`：
@@ -246,7 +246,7 @@ assert "import" in r.output
 
 **验证：**
 ```python
-from mewcode.tools.run import RunTool
+from codepilot.tools.run import RunTool
 from pathlib import Path
 t = RunTool(workspace=Path.cwd(), confirm_callback=lambda c: True)
 r = await t.execute(command="echo hello")
@@ -264,7 +264,7 @@ assert r2.error and "拒绝" in r2.error
 
 ### T9: Delta 扩展 + Anthropic 工具调用解析
 
-**文件：** `mewcode/protocols.py`
+**文件：** `codepilot/protocols.py`
 **依赖：** 无（纯增量改动，现有逻辑不受影响）
 **步骤：**
 1. 在 `protocols.py` 顶部新增 `ToolCall` 和 `ToolResult` 数据类
@@ -282,7 +282,7 @@ assert r2.error and "拒绝" in r2.error
 
 ### T10: OpenAI 工具调用解析
 
-**文件：** `mewcode/protocols.py`
+**文件：** `codepilot/protocols.py`
 **依赖：** T9
 **步骤：**
 1. `OpenAIProtocol.stream()` 新增逻辑：
@@ -298,7 +298,7 @@ assert r2.error and "拒绝" in r2.error
 
 ### T11: Provider 层 tools 参数传递
 
-**文件：** `mewcode/providers.py`
+**文件：** `codepilot/providers.py`
 **依赖：** T9, T10
 **步骤：**
 1. `BaseProvider.stream()` 签名添加 `tools: list[dict] | None = None`
@@ -316,7 +316,7 @@ assert r2.error and "拒绝" in r2.error
 
 ### T12: Agent 类
 
-**文件：** `mewcode/agent.py`
+**文件：** `codepilot/agent.py`
 **依赖：** T1-T11（所有 tools + protocols + providers 改动）
 **步骤：**
 1. 实现 `Agent.__init__`：接收 `provider`, `registry`, `workspace`, `timeout` 参数，识别 provider 协议类型（通过 `provider.config.protocol`）
@@ -365,7 +365,7 @@ assert r2.error and "拒绝" in r2.error
 
 ### T13: ChatManager 委托 Agent
 
-**文件：** `mewcode/chat.py`
+**文件：** `codepilot/chat.py`
 **依赖：** T12
 **步骤：**
 1. `ChatManager.__init__` 参数 `provider: BaseProvider` 改为 `agent: Agent`
@@ -378,7 +378,7 @@ assert r2.error and "拒绝" in r2.error
 
 ### T14: TUI 工具行展示
 
-**文件：** `mewcode/app.py`
+**文件：** `codepilot/app.py`
 **依赖：** T13
 **步骤：**
 1. 在 `on_input_submitted()` 中新增 Delta 类型处理：
@@ -398,7 +398,7 @@ assert r2.error and "拒绝" in r2.error
 
 ### T15: 命令确认列表选择
 
-**文件：** `mewcode/app.py`
+**文件：** `codepilot/app.py`
 **依赖：** T14
 **步骤：**
 1. 创建 `ConfirmList` 组件（Claude Code 风格）：
@@ -407,7 +407,7 @@ assert r2.error and "拒绝" in r2.error
    - ↑↓ 键在选项间移动高亮光标，Enter 确认当前高亮项
    - 数字键 1/2/3 直接选择对应选项
    - 使用 `asyncio.Event` 等待用户选择（不碰屏幕栈，避免 Enter 泄漏）
-2. `MewCodeApp` 新增 `_confirm_command(command: str) → bool` 方法：
+2. `CodePilotApp` 新增 `_confirm_command(command: str) → bool` 方法：
    - 挂载 `ConfirmList` 到当前屏幕 → await 用户选择 → 移除组件
    - 选"始终允许"时设置会话级标志，后续 `run` 自动跳过确认
    - 返回 bool
@@ -417,7 +417,7 @@ assert r2.error and "拒绝" in r2.error
 
 ### T16: main.py 组装
 
-**文件：** `mewcode/main.py`
+**文件：** `codepilot/main.py`
 **依赖：** T15
 **步骤：**
 1. 导入 `Agent`, `ToolRegistry`, 六个工具类
@@ -431,12 +431,12 @@ assert r2.error and "拒绝" in r2.error
    registry.register(GrepTool(workspace=Path.cwd()))
    registry.register(RunTool(workspace=Path.cwd(), confirm_callback=None))  # callback 在 App 中注入
    agent = Agent(provider=provider, registry=registry, workspace=Path.cwd())
-   app = MewCodeApp(cfg, agent)
+   app = CodePilotApp(cfg, agent)
    ```
-3. `MewCodeApp.__init__` 接收 `agent` 而不是 `config`，内部创建 `ChatManager(agent)`
+3. `CodePilotApp.__init__` 接收 `agent` 而不是 `config`，内部创建 `ChatManager(agent)`
 4. `RunTool` 的 `confirm_callback` 在 App.on_mount() 中注入（解决循环依赖）
 
-**验证：** `python -m mewcode` 正常启动，纯文本对话功能正常
+**验证：** `python -m codepilot` 正常启动，纯文本对话功能正常
 
 ---
 
