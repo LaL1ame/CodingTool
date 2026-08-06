@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
 from mewcode.config import ProviderConfig
-from mewcode.protocols import AnthropicProtocol, BaseProtocol, Delta, OpenAIProtocol
+from mewcode.protocols import AnthropicProtocol, Delta, OpenAIProtocol
 
 
 class BaseProvider(ABC):
@@ -12,7 +12,9 @@ class BaseProvider(ABC):
         self.config = config
 
     @abstractmethod
-    async def stream(self, messages: list[dict]) -> AsyncIterator[Delta]:
+    async def stream(
+        self, messages: list[dict], tools: list[dict] | None = None
+    ) -> AsyncIterator[Delta]:
         ...
 
     @staticmethod
@@ -31,8 +33,12 @@ class AnthropicProvider(BaseProvider):
         super().__init__(config)
         self._protocol = AnthropicProtocol(config.base_url, config.api_key, config.model)
 
-    async def stream(self, messages: list[dict]) -> AsyncIterator[Delta]:
-        async for d in self._protocol.stream(messages, thinking=self.config.thinking):
+    async def stream(
+        self, messages: list[dict], tools: list[dict] | None = None
+    ) -> AsyncIterator[Delta]:
+        async for d in self._protocol.stream(
+            messages, thinking=self.config.thinking, tools=tools
+        ):
             yield d
 
 
@@ -41,6 +47,8 @@ class OpenAIProvider(BaseProvider):
         super().__init__(config)
         self._protocol = OpenAIProtocol(config.base_url, config.api_key, config.model)
 
-    async def stream(self, messages: list[dict]) -> AsyncIterator[Delta]:
-        async for d in self._protocol.stream(messages):
+    async def stream(
+        self, messages: list[dict], tools: list[dict] | None = None
+    ) -> AsyncIterator[Delta]:
+        async for d in self._protocol.stream(messages, tools=tools):
             yield d

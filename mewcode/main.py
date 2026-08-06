@@ -5,6 +5,9 @@ import sys
 from pathlib import Path
 
 from mewcode.config import ConfigError, load_config
+from mewcode.providers import BaseProvider
+from mewcode.agent import Agent
+from mewcode.tools import ToolRegistry, ReadTool, WriteTool, EditTool, GlobTool, GrepTool, RunTool
 from mewcode.app import MewCodeApp
 
 
@@ -18,6 +21,17 @@ def find_config() -> Path:
     return cwd
 
 
+def _build_registry(workspace: Path) -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(ReadTool(workspace))
+    registry.register(WriteTool(workspace))
+    registry.register(EditTool(workspace))
+    registry.register(GlobTool(workspace))
+    registry.register(GrepTool(workspace))
+    registry.register(RunTool(workspace))
+    return registry
+
+
 def main() -> None:
     path = os.environ.get("MEWCODE_CONFIG", str(find_config()))
     try:
@@ -29,7 +43,6 @@ def main() -> None:
         print("No providers configured.", file=sys.stderr)
         sys.exit(1)
 
-    # 单 provider 直接进对话；多 provider 简单选择
     if len(configs) == 1:
         cfg = configs[0]
     else:
@@ -48,7 +61,17 @@ def main() -> None:
                 sys.exit(1)
             print(f"Enter 1-{len(configs)}")
 
-    app = MewCodeApp(cfg)
+    workspace = Path.cwd()
+    provider = BaseProvider.create(cfg)
+    registry = _build_registry(workspace)
+    agent = Agent(provider=provider, registry=registry, workspace=workspace)
+
+    app = MewCodeApp(agent)
+    # 注入确认回调到 RunTool
+    run_tool = registry.get("run")
+    if run_tool is not None:
+        run_tool.confirm_callback = app.confirm_command  # type: ignore[attr-defined]
+
     app.run()
 
 

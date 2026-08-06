@@ -18,3 +18,7 @@ mewcode = "mewcode.main:main"
 
 [tool.setuptools.packages.find]
 include = ["mewcode*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
