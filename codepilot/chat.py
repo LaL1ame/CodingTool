@@ -7,12 +7,6 @@ from dataclasses import dataclass, field
 from codepilot.agent import Agent
 from codepilot.protocols import Delta
 
-SYSTEM_PROMPT = (
-    "You are CodePilot, a CLI AI coding assistant. "
-    "You help with programming tasks, answer technical questions, "
-    "and provide code examples. Be concise but thorough."
-)
-
 
 @dataclass
 class Message:
@@ -28,7 +22,7 @@ class ChatManager:
         self.history: list[Message] = []
 
     def build_context(self) -> list[dict]:
-        msgs: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        msgs: list[dict] = [{"role": "system", "content": self.agent.system_prompt()}]
         for m in self.history:
             msgs.append({"role": m.role, "content": m.content})
         return msgs

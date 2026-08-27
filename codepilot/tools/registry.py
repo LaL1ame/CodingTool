@@ -22,13 +22,15 @@ class ToolRegistry:
         """返回无副作用（只读）的工具子集，供计划模式过滤。"""
         return [t for t in self._tools.values() if not t.side_effect]
 
-    def to_anthropic_tools(self) -> list[dict]:
+    def to_anthropic_tools(self, tools: list[Tool] | None = None) -> list[dict]:
+        tools = tools if tools is not None else list(self._tools.values())
         return [
             {"name": t.name, "description": t.description, "input_schema": t.parameters}
-            for t in self._tools.values()
+            for t in tools
         ]
 
-    def to_openai_tools(self) -> list[dict]:
+    def to_openai_tools(self, tools: list[Tool] | None = None) -> list[dict]:
+        tools = tools if tools is not None else list(self._tools.values())
         return [
             {
                 "type": "function",
@@ -38,5 +40,5 @@ class ToolRegistry:
                     "parameters": t.parameters,
                 },
             }
-            for t in self._tools.values()
+            for t in tools
         ]
