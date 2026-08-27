@@ -7,6 +7,10 @@ def tool(workspace):
     return WriteTool(workspace)
 
 
+def test_is_side_effect(tool):
+    assert tool.side_effect is True
+
+
 class TestWriteTool:
     async def test_write_new_file(self, tool, workspace):
         r = await tool.execute(file_path="hello.py", content="print('hi')")

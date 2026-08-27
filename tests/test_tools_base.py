@@ -30,6 +30,10 @@ def test_minimal_tool_instantiation():
     assert t.parameters == {"type": "object", "properties": {}}
 
 
+def test_default_side_effect_is_read_only():
+    assert _MinimalTool().side_effect is False
+
+
 def test_tool_abc_enforces_interface():
     with pytest.raises(TypeError):
         _IncompleteTool()

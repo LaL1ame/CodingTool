@@ -30,6 +30,10 @@ class EditTool(Tool):
             "required": ["file_path", "old_string", "new_string"],
         }
 
+    @property
+    def side_effect(self) -> bool:
+        return True
+
     async def execute(self, file_path: str, old_string: str, new_string: str) -> ToolResult:
         try:
             resolved = validate_path(file_path, self.workspace)

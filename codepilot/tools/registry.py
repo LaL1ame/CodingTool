@@ -18,6 +18,10 @@ class ToolRegistry:
     def list_all(self) -> list[Tool]:
         return list(self._tools.values())
 
+    def list_read_only(self) -> list[Tool]:
+        """返回无副作用（只读）的工具子集，供计划模式过滤。"""
+        return [t for t in self._tools.values() if not t.side_effect]
+
     def to_anthropic_tools(self) -> list[dict]:
         return [
             {"name": t.name, "description": t.description, "input_schema": t.parameters}

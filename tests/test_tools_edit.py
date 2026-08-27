@@ -7,6 +7,10 @@ def tool(workspace):
     return EditTool(workspace)
 
 
+def test_is_side_effect(tool):
+    assert tool.side_effect is True
+
+
 class TestEditTool:
     async def test_unique_match_replaces(self, tool, workspace):
         (workspace / "test.py").write_text("hello\nfoo bar\nbaz")

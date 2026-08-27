@@ -7,6 +7,10 @@ def tool(workspace):
     return RunTool(workspace)
 
 
+def test_is_side_effect(tool):
+    assert tool.side_effect is True
+
+
 class TestRunTool:
     async def test_run_executes_command(self, tool):
         r = await tool.execute(command="echo hello_test", confirm_callback=lambda c: True)

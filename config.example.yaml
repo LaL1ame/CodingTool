@@ -15,3 +15,8 @@ providers:
     base_url: https://api.openai.com
     api_key: sk-your-key-here
     # thinking 字段可省略，默认 false
+
+# Agent 循环配置（可选，缺省用默认值）
+agent:
+  max_rounds: 10              # 单条消息的迭代上限（安全网）
+  max_unknown: 2              # 连续调用未知工具几次后停止

@@ -25,6 +25,11 @@ class Tool(ABC):
         """JSON Schema 格式的参数定义。"""
         ...
 
+    @property
+    def side_effect(self) -> bool:
+        """是否有副作用（写文件/执行命令）。True → 串行执行。默认 False（只读）。"""
+        return False
+
     @abstractmethod
     async def execute(self, **kwargs) -> "ToolResult":
         """执行工具逻辑。异常应在方法内部捕获并转为 ToolResult(error=...)。"""

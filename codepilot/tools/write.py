@@ -29,6 +29,10 @@ class WriteTool(Tool):
             "required": ["file_path", "content"],
         }
 
+    @property
+    def side_effect(self) -> bool:
+        return True
+
     async def execute(self, file_path: str, content: str) -> ToolResult:
         try:
             resolved = validate_path(file_path, self.workspace)

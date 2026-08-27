@@ -39,6 +39,10 @@ class RunTool(Tool):
             "required": ["command"],
         }
 
+    @property
+    def side_effect(self) -> bool:
+        return True
+
     async def execute(self, command: str, confirm_callback=None) -> ToolResult:
         cb = confirm_callback or self.confirm_callback
         if cb is not None:

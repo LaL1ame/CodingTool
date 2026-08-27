@@ -23,6 +23,13 @@ class ProviderConfig:
     thinking: bool = False
 
 
+@dataclass
+class AgentConfig:
+    """Agent 循环的运行时配置。"""
+    max_rounds: int = 10      # 迭代上限（安全网）
+    max_unknown: int = 2      # 连续未知工具阈值
+
+
 def load_config(path: str | Path) -> list[ProviderConfig]:
     path = Path(path)
     if not path.exists():
@@ -51,3 +58,20 @@ def load_config(path: str | Path) -> list[ProviderConfig]:
             thinking=entry.get("thinking", False),
         ))
     return configs
+
+
+def load_agent_config(path: str | Path) -> AgentConfig:
+    """读取可选 agent: 段。文件缺失或无该段时用默认值。"""
+    path = Path(path)
+    if not path.exists():
+        return AgentConfig()
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+    except yaml.YAMLError:
+        return AgentConfig()
+    entry = (raw or {}).get("agent") or {}
+    return AgentConfig(
+        max_rounds=int(entry.get("max_rounds", 10)),
+        max_unknown=int(entry.get("max_unknown", 2)),
+    )
