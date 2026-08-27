@@ -4,7 +4,7 @@ import os
 import sys
 from pathlib import Path
 
-from codepilot.config import ConfigError, load_config
+from codepilot.config import ConfigError, load_agent_config, load_config
 from codepilot.providers import BaseProvider
 from codepilot.agent import Agent
 from codepilot.tools import ToolRegistry, ReadTool, WriteTool, EditTool, GlobTool, GrepTool, RunTool
@@ -62,9 +62,11 @@ def main() -> None:
             print(f"Enter 1-{len(configs)}")
 
     workspace = Path.cwd()
+    agent_config = load_agent_config(path)
     provider = BaseProvider.create(cfg)
     registry = _build_registry(workspace)
-    agent = Agent(provider=provider, registry=registry, workspace=workspace)
+    agent = Agent(provider=provider, registry=registry, workspace=workspace,
+                  max_rounds=agent_config.max_rounds, max_unknown=agent_config.max_unknown)
 
     app = CodePilotApp(agent)
     # 注入确认回调到 RunTool

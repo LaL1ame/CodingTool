@@ -114,7 +114,7 @@ class ToolRow(Static):
 # ── 主 App ────────────────────────────────────────────────────
 
 class CodePilotApp(App):
-    BINDINGS = [("ctrl+c", "quit", "退出")]
+    BINDINGS = [("ctrl+c", "quit", "退出"), ("escape", "cancel_loop", "取消")]
 
     def __init__(self, agent: Agent) -> None:
         super().__init__()
@@ -148,6 +148,11 @@ class CodePilotApp(App):
         yield Input(placeholder="❯ Send a message...  (/exit to quit)", id="prompt")
         yield Footer()
 
+    def action_cancel_loop(self) -> None:
+        """Esc：取消当前 Agent 循环。"""
+        if self._streaming:
+            self._agent.cancel()
+
     # ---- 消息处理 -----------------------------------------------------------
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -156,6 +161,18 @@ class CodePilotApp(App):
             return
         if text == "/exit":
             self.exit()
+            return
+        if text == "/plan":
+            self._agent.set_plan_mode(True)
+            self.query_one("#prompt", Input).value = ""
+            self.query_one("#chat", RichLog).write("\n[dim]── 已切换：计划模式（只读工具）[/dim]")
+            self._update_status("  |  Plan Mode")
+            return
+        if text == "/do":
+            self._agent.set_plan_mode(False)
+            self.query_one("#prompt", Input).value = ""
+            self.query_one("#chat", RichLog).write("\n[dim]── 已切换：执行模式（全部工具）[/dim]")
+            self._update_status()
             return
 
         inp = self.query_one("#prompt", Input)
@@ -187,6 +204,17 @@ class CodePilotApp(App):
                     stream.update("")
                     log.write(f"\n[bold red]❌ Error[/bold red]  {d.error}")
                     return
+
+                if d.cancelled:
+                    stream.update("")
+                    log.write("\n[dim]── 已取消[/dim]")
+                    return
+
+                if d.round is not None:
+                    self._update_status(f"  |  第 {d.round}/{d.max_rounds} 轮")
+
+                if d.usage is not None:
+                    self._update_status(f"  |  {d.usage.input_tokens}+{d.usage.output_tokens} tokens")
 
                 if d.tool_calls:
                     for tc in d.tool_calls:

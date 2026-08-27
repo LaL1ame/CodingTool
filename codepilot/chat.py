@@ -38,7 +38,16 @@ class ChatManager:
                 if d.error:
                     yield d
                     return
+                if d.cancelled:
+                    yield d
+                    return
                 if d.thinking:
+                    continue
+                if d.usage is not None:
+                    yield d
+                    continue
+                if d.round is not None:
+                    yield d
                     continue
                 if d.tool_result is not None:
                     yield d
