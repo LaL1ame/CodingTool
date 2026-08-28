@@ -228,6 +228,28 @@ class TestAgentStopConditions:
         assert elapsed < 3.0  # 被中断，而非等满 5s
 
 
+class TestAgentPlanMode:
+    def test_system_prompt_plan_mode(self):
+        agent = Agent(_MockProvider(), ToolRegistry(), workspace=None)
+        normal = agent.system_prompt()
+        agent.set_plan_mode(True)
+        plan = agent.system_prompt()
+        assert plan != normal
+        assert "计划模式" in plan
+        agent.set_plan_mode(False)
+        assert agent.system_prompt() == normal
+
+    def test_build_tools_read_only_in_plan_mode(self):
+        registry = ToolRegistry()
+        registry.register(_SlowTool("read"))
+        registry.register(_SlowTool("write", side_effect=True))
+        agent = Agent(_MockProvider(protocol="anthropic"), registry, workspace=None)
+        agent.set_plan_mode(True)
+        assert [t["name"] for t in agent._build_tools()] == ["read"]
+        agent.set_plan_mode(False)
+        assert set(t["name"] for t in agent._build_tools()) == {"read", "write"}
+
+
 class TestAgentHistoryInjection:
     async def test_anthropic_injection(self):
         registry = ToolRegistry()
