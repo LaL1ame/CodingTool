@@ -10,6 +10,7 @@ from textual.widgets import Footer, Header, Input, RichLog, Static
 
 from codepilot.agent import Agent
 from codepilot.chat import ChatManager
+from codepilot.commands import parse_command
 
 CAT = r"""
   ╱|、
@@ -159,21 +160,27 @@ class CodePilotApp(App):
         text = event.value.strip()
         if not text or not self._chat or self._streaming:
             return
-        if text == "/exit":
+
+        command, rest = parse_command(text)
+        if command == "exit":
             self.exit()
             return
-        if text == "/plan":
+        if command == "plan":
             self._agent.set_plan_mode(True)
             self.query_one("#prompt", Input).value = ""
             self.query_one("#chat", RichLog).write("\n[dim]── 已切换：计划模式（只读工具）[/dim]")
             self._update_status("  |  Plan Mode")
-            return
-        if text == "/do":
+            if not rest:
+                return
+            text = rest
+        elif command == "do":
             self._agent.set_plan_mode(False)
             self.query_one("#prompt", Input).value = ""
             self.query_one("#chat", RichLog).write("\n[dim]── 已切换：执行模式（全部工具）[/dim]")
             self._update_status()
-            return
+            if not rest:
+                return
+            text = rest
 
         inp = self.query_one("#prompt", Input)
         log = self.query_one("#chat", RichLog)
