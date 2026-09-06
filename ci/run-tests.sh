@@ -64,7 +64,7 @@ step "环境检查"
 # ---- 2. 依赖安装 ----
 if [ "$INSTALL" = "1" ]; then
   step "安装依赖（pip install -e .）"
-  "$PYTHON" -m pip install -e . -q
+  "$PYTHON" -m pip install -e ".[dev]" -q
   pass "依赖安装完成"
 fi
 
