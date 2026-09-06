@@ -28,9 +28,9 @@ class TestRunTool:
         assert r.error is None
 
     async def test_run_with_exit_code(self, tool):
-        r = await tool.execute(command="cmd /c exit 2", confirm_callback=lambda c: True)
+        r = await tool.execute(command="sh -c 'exit 2'", confirm_callback=lambda c: True)
         assert "Exit code: 2" in r.output
 
     async def test_run_stderr_captured(self, tool):
-        r = await tool.execute(command="cmd /c echo err_msg 1>&2", confirm_callback=lambda c: True)
+        r = await tool.execute(command="sh -c 'echo err_msg 1>&2'", confirm_callback=lambda c: True)
         assert "err_msg" in r.output.lower() or "STDERR" in r.output
