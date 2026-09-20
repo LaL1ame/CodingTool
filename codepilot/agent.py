@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
@@ -44,6 +45,7 @@ class Agent:
         self._plan_mode = False
         self._cancel_event = asyncio.Event()
         self._tool_tasks: set[asyncio.Task] = set()
+        self._logger = logging.getLogger("codepilot.agent")
 
     @property
     def _protocol(self) -> str:
@@ -75,11 +77,13 @@ class Agent:
             return self._registry.to_openai_tools(tools)
 
     async def run(self, messages: list[dict]) -> AsyncIterator[Delta]:
+        self._cancel_event.clear()  # 重置取消标志，确保新循环不受上次取消影响
         tools = self._build_tools()
         consecutive_unknown = 0
 
         for round_num in range(1, self._max_rounds + 1):
             yield Delta(round=round_num, max_rounds=self._max_rounds)
+            self._logger.info("round %d/%d start", round_num, self._max_rounds)
 
             # —— 单轮：流式收集（双路：实时 yield + 累积完整文本）——
             text_parts: list[str] = []
@@ -98,22 +102,33 @@ class Agent:
                     yield delta
 
             if self._cancel_event.is_set():
+                self._logger.info("round %d cancelled (user)", round_num)
                 yield Delta(cancelled=True)
                 return
 
             # —— 无工具调用 → 最终回复，结束 ——
             if not tool_calls:
+                self._logger.info(
+                    "round %d done: no tool calls, text=%s",
+                    round_num, "".join(text_parts)[:80],
+                )
                 self._append_assistant(messages, "".join(text_parts), [])
                 yield Delta(done=True)
                 return
 
             # —— 连续未知工具检测（安全网）——
+            names = [tc.name for tc in tool_calls]
+            self._logger.info("round %d tools: %s", round_num, ", ".join(names))
             if any(self._registry.get(tc.name) is None for tc in tool_calls):
                 consecutive_unknown += 1
             else:
                 consecutive_unknown = 0
 
             if consecutive_unknown >= self._max_unknown:
+                self._logger.warning(
+                    "round %d stop: %d consecutive unknown tools (%s)",
+                    round_num, self._max_unknown, ", ".join(names),
+                )
                 yield Delta(error=f"连续调用未知工具（{self._max_unknown} 次），已停止")
                 return
 
@@ -121,13 +136,19 @@ class Agent:
             self._append_assistant(messages, "".join(text_parts), tool_calls)
             results = await self._execute_batched(tool_calls)
             for r in results:
+                if r.error:
+                    self._logger.error("  tool %s error: %s", r.name, r.error)
+                else:
+                    self._logger.info("  tool %s ok: %s", r.name, (r.output or "")[:80])
                 yield Delta(tool_result=r)
             self._append_tool_results(messages, results)
 
             if self._cancel_event.is_set():
+                self._logger.info("round %d cancelled after batch (user)", round_num)
                 yield Delta(cancelled=True)
                 return
 
+        self._logger.warning("stop: iteration limit %d reached", self._max_rounds)
         yield Delta(error=f"达到迭代上限（{self._max_rounds} 轮），已停止")
 
     def _is_side_effect(self, tc: ToolCall) -> bool:

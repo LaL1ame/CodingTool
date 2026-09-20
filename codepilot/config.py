@@ -30,6 +30,13 @@ class AgentConfig:
     max_unknown: int = 2      # 连续未知工具阈值
 
 
+@dataclass
+class LogConfig:
+    """日志落盘配置。file 为空则不写盘。"""
+    file: str = ""
+    level: str = "INFO"
+
+
 def load_config(path: str | Path) -> list[ProviderConfig]:
     path = Path(path)
     if not path.exists():
@@ -74,4 +81,21 @@ def load_agent_config(path: str | Path) -> AgentConfig:
     return AgentConfig(
         max_rounds=int(entry.get("max_rounds", 10)),
         max_unknown=int(entry.get("max_unknown", 2)),
+    )
+
+
+def load_log_config(path: str | Path) -> LogConfig:
+    """读取可选 log: 段。文件缺失或无该段时用默认值（不落盘）。"""
+    path = Path(path)
+    if not path.exists():
+        return LogConfig()
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+    except yaml.YAMLError:
+        return LogConfig()
+    entry = (raw or {}).get("log") or {}
+    return LogConfig(
+        file=entry.get("file", ""),
+        level=entry.get("level", "INFO"),
     )

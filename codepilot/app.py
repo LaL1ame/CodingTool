@@ -125,6 +125,9 @@ class CodePilotApp(App):
         self._stream_start: float = 0.0
         self._tool_rows: dict[str, ToolRow] = {}
         self._always_allow: bool = False
+        # 状态栏整合
+        self._status_round: str = ""
+        self._status_tokens: str = ""
 
     def on_mount(self) -> None:
         self._chat = ChatManager(self._agent)
@@ -137,6 +140,17 @@ class CodePilotApp(App):
         proto = cfg.protocol.upper()
 
         log = self.query_one("#chat", RichLog)
+
+        # —— 布局约束：RichLog 独占剩余高度，工具条/流式区按内容收缩，消除空黑块 ——
+        log.styles.height = "1fr"
+        tools_box = self.query_one("#tools", Vertical)
+        tools_box.styles.height = "auto"
+        tools_box.styles.max_height = 8
+        stream_w = self.query_one("#stream", Static)
+        stream_w.styles.height = "auto"
+        stream_w.styles.max_height = 4
+        tools_box.styles.border = ("round", "gray")  # 工具条加细边框，避免黑乎乎一片
+
         log.write(f"[bold cyan]{CAT}[/bold cyan]\n")
         log.write(f"[bold]CodePilot[/bold] v{VERSION}  |  {cwd}\n")
         log.write(f"[dim]{cfg.name} · {cfg.model}  ({proto}) — Ready[/dim]\n")
@@ -145,6 +159,7 @@ class CodePilotApp(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield RichLog(id="chat", highlight=True, markup=True, wrap=True)
+        yield Vertical(id="tools")  # 工具行容器
         yield Static("", id="stream")
         yield Input(placeholder="❯ Send a message...  (/exit to quit)", id="prompt")
         yield Footer()
@@ -202,7 +217,9 @@ class CodePilotApp(App):
         log = self.query_one("#chat", RichLog)
         inp = self.query_one("#prompt", Input)
         stream = self.query_one("#stream", Static)
+        tools_container = self.query_one("#tools", Vertical)
         stream.update("")
+        tools_container.remove_children()  # 清空上一轮的工具行
 
         buf: list[str] = []
         try:
@@ -218,17 +235,20 @@ class CodePilotApp(App):
                     return
 
                 if d.round is not None:
-                    self._update_status(f"  |  第 {d.round}/{d.max_rounds} 轮")
+                    self._status_round = f"第 {d.round}/{d.max_rounds} 轮"
+                    self._refresh_status()
 
                 if d.usage is not None:
-                    self._update_status(f"  |  {d.usage.input_tokens}+{d.usage.output_tokens} tokens")
+                    self._status_tokens = f"{d.usage.input_tokens}+{d.usage.output_tokens} tokens"
+                    self._refresh_status()
 
                 if d.tool_calls:
+                    tools_container = self.query_one("#tools", Vertical)
                     for tc in d.tool_calls:
                         params = self._format_params(tc.arguments)
                         row = ToolRow(tc.id, tc.name, params)
                         self._tool_rows[tc.id] = row
-                        log.mount(row)
+                        tools_container.mount(row)
 
                 elif d.tool_result:
                     tr = d.tool_result
@@ -260,6 +280,7 @@ class CodePilotApp(App):
         finally:
             try:
                 stream.update("")
+                tools_container.remove_children()
             except Exception:
                 pass
             self._stop_timer()
@@ -313,13 +334,29 @@ class CodePilotApp(App):
         cfg = self._agent._provider.config
         self.sub_title = f"{cfg.name}  |  {cfg.model}{extra}"
 
+    def _refresh_status(self) -> None:
+        """整合状态栏信息，避免多个源互相覆盖。"""
+        parts = []
+        if self._status_round:
+            parts.append(self._status_round)
+        if self._status_tokens:
+            parts.append(self._status_tokens)
+        extra = "  |  " + " | ".join(parts) if parts else ""
+        self._update_status(extra)
+
     def _tick(self) -> None:
         if self._stream_start > 0:
             elapsed = time.time() - self._stream_start
-            self._update_status(f"  |  Imagining… ({elapsed:.0f}s)")
+            # 如果已有轮次/token 信息，保留它们；否则显示 Imagining
+            if self._status_round or self._status_tokens:
+                self._refresh_status()
+            else:
+                self._update_status(f"  |  Imagining… ({elapsed:.0f}s)")
 
     def _stop_timer(self) -> None:
         self._stream_start = 0.0
+        self._status_round = ""
+        self._status_tokens = ""
         for t in list(self._timers):
             t.stop()
         self._update_status()

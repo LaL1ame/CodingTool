@@ -17,6 +17,9 @@ venv/
 # Config (contains API keys)
 config.yaml
 
+# Runtime logs (may contain prompts / outputs)
+logs/
+
 # OS
 .DS_Store
 Thumbs.db

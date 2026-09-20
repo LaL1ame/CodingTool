@@ -20,3 +20,8 @@ providers:
 agent:
   max_rounds: 10              # 单条消息的迭代上限（安全网）
   max_unknown: 2              # 连续调用未知工具几次后停止
+
+# 日志落盘配置（可选，file 留空则不写盘；可用 MEWCODE_LOG 环境变量覆盖）
+log:
+  file: logs/codepilot.log    # 相对路径，将在启动时自动创建
+  level: INFO                 # DEBUG / INFO / WARNING

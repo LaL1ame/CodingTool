@@ -4,7 +4,8 @@ import os
 import sys
 from pathlib import Path
 
-from codepilot.config import ConfigError, load_agent_config, load_config
+from codepilot.config import ConfigError, load_agent_config, load_config, load_log_config
+from codepilot.logging_setup import setup_logging
 from codepilot.providers import BaseProvider
 from codepilot.agent import Agent
 from codepilot.tools import ToolRegistry, ReadTool, WriteTool, EditTool, GlobTool, GrepTool, RunTool
@@ -34,6 +35,13 @@ def _build_registry(workspace: Path) -> ToolRegistry:
 
 def main() -> None:
     path = os.environ.get("MEWCODE_CONFIG", str(find_config()))
+
+    # 日志落盘：优先环境变量覆盖，其次 config.yaml 的 log: 段
+    log_cfg = load_log_config(path)
+    if os.environ.get("MEWCODE_LOG"):
+        log_cfg.file = os.environ["MEWCODE_LOG"]
+    setup_logging(log_cfg.file, log_cfg.level)
+
     try:
         configs = load_config(path)
     except ConfigError as e:
