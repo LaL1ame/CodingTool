@@ -7,21 +7,9 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 
 from codepilot.protocols import Delta, ToolCall, ToolResult
+from codepilot.prompt import EnvContext, build_system_prompt
 from codepilot.providers import BaseProvider
 from codepilot.tools.registry import ToolRegistry
-
-SYSTEM_PROMPT = (
-    "You are CodePilot, a CLI AI coding assistant. "
-    "You help with programming tasks by reading files, searching code, editing files, "
-    "and running commands using your available tools. "
-    "Work autonomously: use tools as needed, inspect results, and adjust until the task is done. "
-    "Be concise but thorough."
-)
-
-PLAN_MODE_SUFFIX = (
-    "\n\n[Plan Mode] 你当前处于计划模式：只能使用只读工具（read/glob/grep）探索现状，"
-    "不要修改文件或执行命令。请分析代码并给出清晰、可执行的计划。"
-)
 
 
 class Agent:
@@ -34,6 +22,8 @@ class Agent:
         confirm_callback: Callable[[str], Awaitable[bool]] | None = None,
         max_rounds: int = 10,
         max_unknown: int = 2,
+        env: EnvContext | None = None,
+        refresh_every: int = 3,
     ) -> None:
         self._provider = provider
         self._registry = registry
@@ -42,6 +32,8 @@ class Agent:
         self._confirm_callback = confirm_callback
         self._max_rounds = max_rounds
         self._max_unknown = max_unknown
+        self._env = env
+        self._refresh_every = refresh_every
         self._plan_mode = False
         self._cancel_event = asyncio.Event()
         self._tool_tasks: set[asyncio.Task] = set()
@@ -52,7 +44,7 @@ class Agent:
         return self._provider.config.protocol.lower()
 
     def set_plan_mode(self, on: bool) -> None:
-        """切换计划模式：只读工具 + 计划提醒提示词。"""
+        """切换计划模式：只读工具 + 按轮注入 plan 指令（builder 侧）。"""
         self._plan_mode = on
 
     def cancel(self) -> None:
@@ -60,12 +52,6 @@ class Agent:
         self._cancel_event.set()
         for task in list(self._tool_tasks):
             task.cancel()
-
-    def system_prompt(self) -> str:
-        """返回模式感知的系统提示词。"""
-        if self._plan_mode:
-            return SYSTEM_PROMPT + PLAN_MODE_SUFFIX
-        return SYSTEM_PROMPT
 
     def _build_tools(self) -> list[dict] | None:
         tools = self._registry.list_read_only() if self._plan_mode else self._registry.list_all()
@@ -85,10 +71,21 @@ class Agent:
             yield Delta(round=round_num, max_rounds=self._max_rounds)
             self._logger.info("round %d/%d start", round_num, self._max_rounds)
 
+            # —— 每轮重建分层系统提示（稳定前缀 + 动态尾块）——
+            sp = build_system_prompt(
+                self._env or EnvContext(cwd=str(self._workspace), date=""),
+                plan_mode=self._plan_mode,
+                round_num=round_num,
+                refresh_every=self._refresh_every,
+            )
+            if self._plan_mode:
+                n_plan = sum(1 for b in sp.volatile if "session_instruction" in b)
+                self._logger.info("round %d plan-inject blocks: %d", round_num, n_plan)
+
             # —— 单轮：流式收集（双路：实时 yield + 累积完整文本）——
             text_parts: list[str] = []
             tool_calls: list[ToolCall] = []
-            async for delta in self._provider.stream(messages, tools=tools):
+            async for delta in self._provider.stream(messages, tools=tools, system=sp):
                 if delta.error:
                     yield delta
                     return
@@ -99,6 +96,11 @@ class Agent:
                     tool_calls = delta.tool_calls
                     yield delta
                 if delta.usage is not None:
+                    if delta.usage.cache_read is not None:
+                        self._logger.info(
+                            "round %d cache read=%d creation=%d",
+                            round_num, delta.usage.cache_read, delta.usage.cache_creation,
+                        )
                     yield delta
 
             if self._cancel_event.is_set():

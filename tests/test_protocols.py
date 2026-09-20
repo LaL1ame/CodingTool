@@ -2,7 +2,15 @@
 
 import json
 
-from codepilot.protocols import AnthropicProtocol, OpenAIProtocol, _chat_completions_url
+from codepilot.prompt import SystemPrompt
+from codepilot.protocols import (
+    AnthropicProtocol, OpenAIProtocol, _chat_completions_url,
+    _mark_tools_cacheable, _serialize_system,
+)
+
+
+def _sp(stable=("S1", "S2", "S3"), volatile=("v1", "v2")):
+    return SystemPrompt(stable=list(stable), volatile=list(volatile))
 
 
 # ── SSE 模拟工具 ──────────────────────────────────────────────
@@ -156,3 +164,50 @@ def test_url_with_v1_version():
 def test_url_strips_trailing_slash():
     assert _chat_completions_url("https://api.deepseek.com/") == \
         "https://api.deepseek.com/v1/chat/completions"
+
+
+# ── SystemPrompt 序列化（Anthropic 缓存断点）──────────────────
+
+def test_serialize_system_breakpoint_on_last_stable():
+    blocks = _serialize_system(_sp(["S1", "S2", "S3"], ["v1", "v2"]))
+    # 3 个 stable 块 + 2 个 volatile 块 = 5 块
+    assert [b["text"] for b in blocks] == ["S1", "S2", "S3", "v1", "v2"]
+    # cache_control 只在最后一块 stable 上
+    assert blocks[0].get("cache_control") is None
+    assert blocks[1].get("cache_control") is None
+    assert blocks[2]["cache_control"] == {"type": "ephemeral"}
+    # volatile 尾块一律不挂
+    assert blocks[3].get("cache_control") is None
+    assert blocks[4].get("cache_control") is None
+
+
+def test_serialize_system_single_stable_still_has_breakpoint():
+    blocks = _serialize_system(_sp(["only"], []))
+    assert blocks[0]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_mark_tools_cacheable_last_only():
+    tools = [{"name": "read"}, {"name": "write"}, {"name": "edit"}]
+    _mark_tools_cacheable(tools)
+    assert tools[0].get("cache_control") is None
+    assert tools[1].get("cache_control") is None
+    assert tools[2]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_mark_tools_cacheable_empty_noop():
+    _mark_tools_cacheable([])  # 不应抛异常
+
+
+class TestCacheFieldParsing:
+    async def test_anthropic_cache_fields(self):
+        _, deltas = await _anthropic([
+            '{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+            '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}',
+            '{"type":"content_block_stop","index":0}',
+            '{"type":"message_stop","usage":{"input_tokens":10,"output_tokens":3,'
+            '"cache_read_input_tokens":55,"cache_creation_input_tokens":20}}',
+        ])
+        usages = [d for d in deltas if d.usage]
+        assert len(usages) == 1
+        assert usages[0].usage.cache_read == 55
+        assert usages[0].usage.cache_creation == 20

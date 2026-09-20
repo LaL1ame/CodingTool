@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
 from codepilot.config import ProviderConfig
+from codepilot.prompt import SystemPrompt
 from codepilot.protocols import AnthropicProtocol, Delta, OpenAIProtocol
 
 
@@ -13,7 +14,8 @@ class BaseProvider(ABC):
 
     @abstractmethod
     async def stream(
-        self, messages: list[dict], tools: list[dict] | None = None
+        self, messages: list[dict], tools: list[dict] | None = None,
+        system: SystemPrompt | None = None,
     ) -> AsyncIterator[Delta]:
         ...
 
@@ -34,10 +36,11 @@ class AnthropicProvider(BaseProvider):
         self._protocol = AnthropicProtocol(config.base_url, config.api_key, config.model)
 
     async def stream(
-        self, messages: list[dict], tools: list[dict] | None = None
+        self, messages: list[dict], tools: list[dict] | None = None,
+        system: SystemPrompt | None = None,
     ) -> AsyncIterator[Delta]:
         async for d in self._protocol.stream(
-            messages, thinking=self.config.thinking, tools=tools
+            messages, thinking=self.config.thinking, tools=tools, system=system
         ):
             yield d
 
@@ -48,7 +51,8 @@ class OpenAIProvider(BaseProvider):
         self._protocol = OpenAIProtocol(config.base_url, config.api_key, config.model)
 
     async def stream(
-        self, messages: list[dict], tools: list[dict] | None = None
+        self, messages: list[dict], tools: list[dict] | None = None,
+        system: SystemPrompt | None = None,
     ) -> AsyncIterator[Delta]:
-        async for d in self._protocol.stream(messages, tools=tools):
+        async for d in self._protocol.stream(messages, tools=tools, system=system):
             yield d

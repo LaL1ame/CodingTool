@@ -2,10 +2,12 @@
 
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from codepilot.config import ConfigError, load_agent_config, load_config, load_log_config
 from codepilot.logging_setup import setup_logging
+from codepilot.prompt import EnvContext
 from codepilot.providers import BaseProvider
 from codepilot.agent import Agent
 from codepilot.tools import ToolRegistry, ReadTool, WriteTool, EditTool, GlobTool, GrepTool, RunTool
@@ -73,8 +75,10 @@ def main() -> None:
     agent_config = load_agent_config(path)
     provider = BaseProvider.create(cfg)
     registry = _build_registry(workspace)
+    env = EnvContext(cwd=str(workspace), date=datetime.now().strftime("%Y-%m-%d"))
     agent = Agent(provider=provider, registry=registry, workspace=workspace,
-                  max_rounds=agent_config.max_rounds, max_unknown=agent_config.max_unknown)
+                  max_rounds=agent_config.max_rounds, max_unknown=agent_config.max_unknown,
+                  env=env, refresh_every=agent_config.prompt_refresh_every)
 
     app = CodePilotApp(agent)
     # 注入确认回调到 RunTool

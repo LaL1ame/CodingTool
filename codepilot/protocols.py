@@ -8,6 +8,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from codepilot.prompt import SystemPrompt
+
 
 @dataclass
 class ToolCall:
@@ -30,9 +32,11 @@ class ToolResult:
 
 @dataclass
 class Usage:
-    """单轮 LLM 调用的 Token 用量。"""
+    """单轮 LLM 调用的 Token 用量（Anthropic 含缓存命中信息）。"""
     input_tokens: int
     output_tokens: int
+    cache_read: int | None = None          # 命中缓存的 token（Anthropic）
+    cache_creation: int | None = None      # 写入缓存的 token（Anthropic）
 
 
 @dataclass
@@ -67,12 +71,16 @@ class AnthropicProtocol(BaseProtocol):
     async def stream(
         self, messages: list[dict], thinking: bool = False,
         tools: list[dict] | None = None,
+        system: SystemPrompt | None = None,
     ) -> AsyncIterator[Delta]:
         body: dict = {"model": self.model, "messages": messages, "stream": True, "max_tokens": 4096}
         if thinking:
             body["thinking"] = {"type": "enabled", "budget_tokens": 2000}
+        if system:
+            body["system"] = _serialize_system(system)
         if tools:
             body["tools"] = tools
+            _mark_tools_cacheable(tools)  # 工具定义进缓存
 
         headers = {
             "x-api-key": self.api_key, "anthropic-version": "2023-06-01",
@@ -136,6 +144,8 @@ class AnthropicProtocol(BaseProtocol):
                         yield Delta(usage=Usage(
                             input_tokens=usage.get("input_tokens", 0),
                             output_tokens=usage.get("output_tokens", 0),
+                            cache_read=usage.get("cache_read_input_tokens"),
+                            cache_creation=usage.get("cache_creation_input_tokens"),
                         ))
                     if tool_blocks:
                         calls = []
@@ -155,6 +165,29 @@ class AnthropicProtocol(BaseProtocol):
                     yield Delta(error=err.get("message", str(err)))
 
 
+def _mark_tools_cacheable(tools: list[dict]) -> None:
+    """给 tools 数组末位挂 cache_control，使工具定义进入缓存前缀。"""
+    if tools:
+        tools[-1]["cache_control"] = {"type": "ephemeral"}
+
+
+def _serialize_system(system: SystemPrompt) -> list[dict]:
+    """把分层 SystemPrompt 序列化为 Anthropic system 块列表。
+
+    稳定前缀块逐块写入，末位 stable 挂 cache_control 断点；volatile 尾块追加在断点后、
+    不挂 cache_control — 保证前缀进缓存、动态内容不进。
+    """
+    blocks: list[dict] = []
+    for i, text in enumerate(system.stable):
+        block: dict = {"type": "text", "text": text}
+        if i == len(system.stable) - 1:
+            block["cache_control"] = {"type": "ephemeral"}
+        blocks.append(block)
+    for text in system.volatile:
+        blocks.append({"type": "text", "text": text})
+    return blocks
+
+
 def _chat_completions_url(base_url: str) -> str:
     """推导 chat/completions 端点。
 
@@ -172,8 +205,12 @@ class OpenAIProtocol(BaseProtocol):
     async def stream(
         self, messages: list[dict], thinking: bool = False,
         tools: list[dict] | None = None,
+        system: SystemPrompt | None = None,
     ) -> AsyncIterator[Delta]:
         _ = thinking
+        if system:
+            merged = "\n\n".join(system.stable + system.volatile)
+            messages = [{"role": "system", "content": merged}, *messages]
         body: dict = {"model": self.model, "messages": messages, "stream": True,
                       "stream_options": {"include_usage": True}}
         if tools:

@@ -16,7 +16,7 @@ class EditTool(Tool):
 
     @property
     def description(self) -> str:
-        return "在文件中做精确匹配替换。找到 old_string 并替换为 new_string。old_string 必须在文件中有唯一匹配。建议先用 read 确认文件现状。"
+        return "在文件中做精确匹配替换。找到 old_string 并替换为 new_string。old_string 必须在文件中有唯一匹配。编辑前必先读：先用 read 确认文件现状。"
 
     @property
     def parameters(self) -> dict:

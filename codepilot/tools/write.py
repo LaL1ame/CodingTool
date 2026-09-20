@@ -16,7 +16,7 @@ class WriteTool(Tool):
 
     @property
     def description(self) -> str:
-        return "创建或覆盖文件。如果文件已存在则覆盖其内容。会自动创建不存在的父目录。"
+        return "创建或覆盖文件。如果文件已存在则覆盖其内容。覆盖前必先读：先用 read 了解目标文件现状。会自动创建不存在的父目录。"
 
     @property
     def parameters(self) -> dict:

@@ -20,6 +20,7 @@ providers:
 agent:
   max_rounds: 10              # 单条消息的迭代上限（安全网）
   max_unknown: 2              # 连续调用未知工具几次后停止
+  prompt_refresh_every: 3     # 规划模式指令每 N 轮精简重复一次（第 1 轮注入全文）
 
 # 日志落盘配置（可选，file 留空则不写盘；可用 MEWCODE_LOG 环境变量覆盖）
 log:

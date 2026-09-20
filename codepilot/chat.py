@@ -22,10 +22,8 @@ class ChatManager:
         self.history: list[Message] = []
 
     def build_context(self) -> list[dict]:
-        msgs: list[dict] = [{"role": "system", "content": self.agent.system_prompt()}]
-        for m in self.history:
-            msgs.append({"role": m.role, "content": m.content})
-        return msgs
+        """返回历史消息（不含 system —— system 由 agent 每轮按协议串行化注入）。"""
+        return [{"role": m.role, "content": m.content} for m in self.history]
 
     async def send_message(self, content: str) -> AsyncIterator[Delta]:
         self.history.append(Message(role="user", content=content))

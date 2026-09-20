@@ -15,10 +15,11 @@ def test_defaults_when_no_agent_section(tmp_path):
 
 
 def test_agent_section_parsed(tmp_path):
-    p = _write(tmp_path, "agent:\n  max_rounds: 5\n  max_unknown: 3\n")
+    p = _write(tmp_path, "agent:\n  max_rounds: 5\n  max_unknown: 3\n  prompt_refresh_every: 4\n")
     cfg = load_agent_config(p)
     assert cfg.max_rounds == 5
     assert cfg.max_unknown == 3
+    assert cfg.prompt_refresh_every == 4
 
 
 def test_partial_agent_section_uses_defaults(tmp_path):
@@ -26,6 +27,7 @@ def test_partial_agent_section_uses_defaults(tmp_path):
     cfg = load_agent_config(p)
     assert cfg.max_rounds == 7
     assert cfg.max_unknown == 2
+    assert cfg.prompt_refresh_every == 3
 
 
 def test_missing_file_returns_defaults(tmp_path):

@@ -19,10 +19,12 @@ class _MockProvider(BaseProvider):
         self.config = ProviderConfig(name="m", protocol=protocol, model="m", api_key="k", base_url="http://m")
         self._rounds = rounds or []
         self._calls = 0
+        self.systems = []  # spy：记录每次 stream 收到的 system
 
-    async def stream(self, messages, tools=None) -> AsyncIterator[Delta]:
+    async def stream(self, messages, tools=None, system=None) -> AsyncIterator[Delta]:
         idx = self._calls
         self._calls += 1
+        self.systems.append(system)
         if idx >= len(self._rounds):
             return
         for d in self._rounds[idx]:
@@ -229,15 +231,41 @@ class TestAgentStopConditions:
 
 
 class TestAgentPlanMode:
-    def test_system_prompt_plan_mode(self):
-        agent = Agent(_MockProvider(), ToolRegistry(), workspace=None)
-        normal = agent.system_prompt()
+    async def test_plan_mode_injection_per_round(self):
+        registry = ToolRegistry()
+        registry.register(_SlowTool("read"))
+        provider = _MockProvider(rounds=[
+            [Delta(tool_calls=[ToolCall(id="1", name="read", arguments={})])],
+            [Delta(tool_calls=[ToolCall(id="2", name="read", arguments={})])],
+            [Delta(tool_calls=[ToolCall(id="3", name="read", arguments={})])],
+            [Delta(text="Done"), Delta(done=True)],
+        ])
+        agent = Agent(provider, registry, workspace=None, refresh_every=2, max_rounds=10)
         agent.set_plan_mode(True)
-        plan = agent.system_prompt()
-        assert plan != normal
-        assert "计划模式" in plan
-        agent.set_plan_mode(False)
-        assert agent.system_prompt() == normal
+        [d async for d in agent.run([])]
+        systems = provider.systems
+        assert "规划模式" in "".join(systems[0].volatile)     # round1 全文
+        assert "继续输出/完善计划" in "".join(systems[1].volatile)  # round2 精简
+        assert not any("session_instruction" in b for b in systems[2].volatile)  # round3 跳过
+
+    async def test_normal_mode_no_plan_injection(self):
+        provider = _MockProvider(rounds=[[Delta(text="Hi"), Delta(done=True)]])
+        agent = Agent(provider, ToolRegistry(), workspace=None)
+        [d async for d in agent.run([])]
+        assert not any("session_instruction" in b for b in provider.systems[0].volatile)
+
+    async def test_stable_prefix_identical_across_rounds(self):
+        registry = ToolRegistry()
+        registry.register(_SlowTool("read"))
+        provider = _MockProvider(rounds=[
+            [Delta(tool_calls=[ToolCall(id="1", name="read", arguments={})])],
+            [Delta(tool_calls=[ToolCall(id="2", name="read", arguments={})])],
+            [Delta(text="Done"), Delta(done=True)],
+        ])
+        agent = Agent(provider, registry, workspace=None)
+        [d async for d in agent.run([])]
+        stables = [s.stable for s in provider.systems]
+        assert all(s == stables[0] for s in stables)  # 缓存前提：稳定前缀逐 token 不变
 
     def test_build_tools_read_only_in_plan_mode(self):
         registry = ToolRegistry()

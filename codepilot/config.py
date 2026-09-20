@@ -28,6 +28,7 @@ class AgentConfig:
     """Agent 循环的运行时配置。"""
     max_rounds: int = 10      # 迭代上限（安全网）
     max_unknown: int = 2      # 连续未知工具阈值
+    prompt_refresh_every: int = 3  # plan 模式指令每 N 轮精简重复一次（F6）
 
 
 @dataclass
@@ -81,6 +82,7 @@ def load_agent_config(path: str | Path) -> AgentConfig:
     return AgentConfig(
         max_rounds=int(entry.get("max_rounds", 10)),
         max_unknown=int(entry.get("max_unknown", 2)),
+        prompt_refresh_every=int(entry.get("prompt_refresh_every", 3)),
     )
 
 
