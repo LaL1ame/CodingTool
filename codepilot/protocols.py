@@ -1,6 +1,7 @@
 """协议层：Delta + BaseProtocol + AnthropicProtocol + OpenAIProtocol。"""
 
 import json
+import re
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -154,6 +155,19 @@ class AnthropicProtocol(BaseProtocol):
                     yield Delta(error=err.get("message", str(err)))
 
 
+def _chat_completions_url(base_url: str) -> str:
+    """推导 chat/completions 端点。
+
+    base_url 已含版本段（如 .../v3、.../v1）时直接在其后接 /chat/completions；
+    否则（裸 origin，如 https://api.deepseek.com）补齐 /v1/chat/completions。
+    兼容 OpenAI 官方 base（版本段自带）与裸 origin 两种写法。
+    """
+    base = base_url.rstrip("/")
+    if re.search(r"/v\d+(beta)?$", base):
+        return f"{base}/chat/completions"
+    return f"{base}/v1/chat/completions"
+
+
 class OpenAIProtocol(BaseProtocol):
     async def stream(
         self, messages: list[dict], thinking: bool = False,
@@ -166,7 +180,7 @@ class OpenAIProtocol(BaseProtocol):
             body["tools"] = tools
 
         headers = {"Authorization": f"Bearer {self.api_key}", "content-type": "application/json"}
-        url = f"{self.base_url}/v1/chat/completions"
+        url = _chat_completions_url(self.base_url)
 
         try:
             async with httpx.AsyncClient(timeout=120) as client:

@@ -2,7 +2,7 @@
 
 import json
 
-from codepilot.protocols import AnthropicProtocol, OpenAIProtocol
+from codepilot.protocols import AnthropicProtocol, OpenAIProtocol, _chat_completions_url
 
 
 # ── SSE 模拟工具 ──────────────────────────────────────────────
@@ -134,3 +134,25 @@ class TestOpenAIToolCalls:
         assert len(usages) == 1
         assert usages[0].usage.input_tokens == 42
         assert usages[0].usage.output_tokens == 7
+
+
+# ── chat/completions URL 推导 ─────────────────────────────────
+
+def test_url_bare_origin_appends_v1():
+    assert _chat_completions_url("https://api.deepseek.com") == \
+        "https://api.deepseek.com/v1/chat/completions"
+
+
+def test_url_with_version_does_not_duplicate():
+    assert _chat_completions_url("https://ark.cn-beijing.volces.com/api/coding/v3") == \
+        "https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions"
+
+
+def test_url_with_v1_version():
+    assert _chat_completions_url("https://x.example.com/v1") == \
+        "https://x.example.com/v1/chat/completions"
+
+
+def test_url_strips_trailing_slash():
+    assert _chat_completions_url("https://api.deepseek.com/") == \
+        "https://api.deepseek.com/v1/chat/completions"
