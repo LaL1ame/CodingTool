@@ -11,6 +11,7 @@ from textual.widgets import Footer, Header, Input, RichLog, Static
 from codepilot.agent import Agent
 from codepilot.chat import ChatManager
 from codepilot.commands import parse_command
+from codepilot.permissions.policy import HumanChoice
 
 CAT = r"""
   ╱|、
@@ -21,28 +22,36 @@ CAT = r"""
 VERSION = "0.2.0"
 
 
-# ── 命令确认屏幕（Claude Code 风格） ──────────────────────────
+# ── 权限确认屏幕（人机回路） ─────────────────────────────────
 
-class ConfirmScreen(Screen[bool]):
-    """返回 True(批准) / False(拒绝)。第三个选项"始终允许"等价于批准。"""
+class PermissionScreen(Screen[HumanChoice]):
+    """五层防御第 5 层：规则未命中的 ask 交回用户。四选映射 HumanChoice。"""
 
     OPTIONS = [
-        ("1", "批准执行"),
-        ("2", "拒绝执行"),
-        ("3", "始终允许（本次会话）"),
+        ("1", "允许本次"),
+        ("2", "拒绝"),
+        ("3", "本会话允许"),
+        ("4", "永久允许"),
+    ]
+    CHOICES = [
+        HumanChoice.ALLOW_THIS,
+        HumanChoice.DENY,
+        HumanChoice.ALLOW_SESSION,
+        HumanChoice.ALLOW_FOREVER,
     ]
 
-    def __init__(self, command: str) -> None:
+    def __init__(self, title: str, detail: str) -> None:
         super().__init__()
-        self.command = command
+        self.title = title
+        self.detail = detail
         self._cursor = 0
 
     def compose(self) -> ComposeResult:
         with Vertical(id="confirm-box"):
-            yield Static("⚠ 确认执行命令", id="confirm-title")
-            yield Static(f"[bold reverse]{self.command}[/bold reverse]", id="confirm-command")
+            yield Static(f"⚠ 权限确认 — {self.title}", id="confirm-title")
+            yield Static(f"[bold reverse]{self.detail}[/bold reverse]", id="confirm-command")
             yield Static(self._render_options(), id="confirm-options")
-            yield Static("[dim]↑↓ 选择  Enter 确认  1/2/3 直达  Esc 拒绝[/dim]", id="confirm-hint")
+            yield Static("[dim]↑↓ 选择  Enter 确认  1-4 直达  Esc 拒绝[/dim]", id="confirm-hint")
 
     def on_mount(self) -> None:
         box = self.query_one("#confirm-box")
@@ -68,8 +77,7 @@ class ConfirmScreen(Screen[bool]):
         self.query_one("#confirm-options").update(self._render_options())
 
     def _select(self, index: int) -> None:
-        # 选项 0 (批准) / 2 (始终允许) → True, 选项 1 (拒绝) → False
-        self.dismiss(index != 1)
+        self.dismiss(self.CHOICES[index])
 
     def on_key(self, event) -> None:
         if not self._active:
@@ -84,12 +92,12 @@ class ConfirmScreen(Screen[bool]):
         elif key == "enter":
             event.stop()
             self._select(self._cursor)
-        elif key in ("1", "2", "3"):
+        elif key in ("1", "2", "3", "4"):
             event.stop()
             self._select(int(key) - 1)
         elif key == "escape":
             event.stop()
-            self.dismiss(False)
+            self.dismiss(HumanChoice.DENY)
 
 
 # ── 工具行 Widget ─────────────────────────────────────────────
@@ -124,7 +132,6 @@ class CodePilotApp(App):
         self._streaming = False
         self._stream_start: float = 0.0
         self._tool_rows: dict[str, ToolRow] = {}
-        self._always_allow: bool = False
         # 状态栏整合
         self._status_round: str = ""
         self._status_tokens: str = ""
@@ -288,23 +295,14 @@ class CodePilotApp(App):
             inp.disabled = False
             self._streaming = False
 
-    # ---- 命令确认（在 Worker 中调用，不阻塞消息泵）------------------
+    # ---- 权限人机回路（Worker 中调用，不阻塞消息泵）------------------
 
-    async def confirm_command(self, command: str) -> bool:
-        """Worker 中调用 push_screen + wait_for_dismiss，不阻塞消息泵。"""
-        if self._always_allow:
-            return True
-
-        screen = ConfirmScreen(command)
-        # wait_for_dismiss=True 返回 Future，Worker 中 await 不阻塞消息泵
+    async def ask_permission(self, tool: str, subject: str) -> HumanChoice:
+        """权限 ask → 弹 PermissionScreen，返回 HumanChoice。"""
+        detail = f"{tool}({subject[:80]})" if subject else tool
+        screen = PermissionScreen(tool, detail)
         result = await self.push_screen(screen, wait_for_dismiss=True)
-
-        # "始终允许" 选项: _select(2) → dismiss(True)，与批准相同
-        # 我们需要区分"批准"和"始终允许"——用 cursor 位置判断
-        if screen._cursor == 2:  # 选了"始终允许"
-            self._always_allow = True
-
-        return result is True
+        return result if isinstance(result, HumanChoice) else HumanChoice.DENY
 
     # ---- 辅助方法 -----------------------------------------------------------
 

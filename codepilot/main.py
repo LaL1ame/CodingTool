@@ -5,8 +5,14 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from codepilot.config import ConfigError, load_agent_config, load_config, load_log_config
+from codepilot.config import (
+    ConfigError, load_agent_config, load_config, load_log_config,
+    load_permissions_config,
+)
 from codepilot.logging_setup import setup_logging
+from codepilot.permissions import PermissionManager
+from codepilot.permissions.loader import load_rules_from_files
+from codepilot.permissions.mode import PermissionMode
 from codepilot.prompt import EnvContext
 from codepilot.providers import BaseProvider
 from codepilot.agent import Agent
@@ -75,16 +81,31 @@ def main() -> None:
     agent_config = load_agent_config(path)
     provider = BaseProvider.create(cfg)
     registry = _build_registry(workspace)
+
+    # —— 权限系统：读三级规则文件 + 模式，构造 PermissionManager ——
+    perms_cfg = load_permissions_config(path)
+    mode = getattr(PermissionMode, perms_cfg.mode.upper(), PermissionMode.DEFAULT)
+    user_rules = Path(perms_cfg.user_rules) if perms_cfg.user_rules else \
+        Path.home() / ".config" / "codepilot" / "permissions.yaml"
+    project_rules = Path(perms_cfg.project_rules) if perms_cfg.project_rules else \
+        workspace / "codepilot-permissions.yaml"
+    local_rules = Path(perms_cfg.local_rules) if perms_cfg.local_rules else \
+        workspace / "codepilot-permissions.local.yaml"
+    permission = PermissionManager(
+        workspace=workspace, mode=mode,
+        rules=load_rules_from_files([user_rules, project_rules]),
+        local_rules_path=local_rules,
+    )
+
     env = EnvContext(cwd=str(workspace), date=datetime.now().strftime("%Y-%m-%d"))
     agent = Agent(provider=provider, registry=registry, workspace=workspace,
                   max_rounds=agent_config.max_rounds, max_unknown=agent_config.max_unknown,
-                  env=env, refresh_every=agent_config.prompt_refresh_every)
+                  env=env, refresh_every=agent_config.prompt_refresh_every,
+                  permission=permission)
 
     app = CodePilotApp(agent)
-    # 注入确认回调到 RunTool
-    run_tool = registry.get("run")
-    if run_tool is not None:
-        run_tool.confirm_callback = app.confirm_command  # type: ignore[attr-defined]
+    # 权限人机回路：App 的 ask_permission 作为 PermissionManager 的 human_callback
+    permission.human_callback = app.ask_permission
 
     app.run()
 

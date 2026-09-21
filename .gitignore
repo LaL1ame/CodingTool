@@ -20,6 +20,9 @@ config.yaml
 # Runtime logs (may contain prompts / outputs)
 logs/
 
+# Local permission rules (user-approved永久放行)
+codepilot-permissions.local.yaml
+
 # OS
 .DS_Store
 Thumbs.db

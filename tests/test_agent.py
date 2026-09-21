@@ -8,6 +8,8 @@ from codepilot.protocols import Delta, ToolCall, ToolResult
 from codepilot.providers import BaseProvider
 from codepilot.config import ProviderConfig
 from codepilot.agent import Agent
+from codepilot.permissions import PermissionManager
+from codepilot.permissions.mode import PermissionMode
 from codepilot.tools.registry import ToolRegistry
 from codepilot.tools.base import Tool
 
@@ -276,6 +278,37 @@ class TestAgentPlanMode:
         assert [t["name"] for t in agent._build_tools()] == ["read"]
         agent.set_plan_mode(False)
         assert set(t["name"] for t in agent._build_tools()) == {"read", "write"}
+
+
+class TestAgentPermission:
+    async def test_denied_tool_does_not_terminate_loop(self):
+        registry = ToolRegistry()
+        registry.register(_SlowTool("read"))
+        permission = PermissionManager(workspace=None, mode=PermissionMode.STRICT)
+        provider = _MockProvider(rounds=[
+            [Delta(tool_calls=[ToolCall(id="1", name="read", arguments={})])],
+            [Delta(text="Adjusted"), Delta(done=True)],
+        ])
+        agent = Agent(provider, registry, workspace=None, permission=permission)
+        deltas = [d async for d in agent.run([])]
+        denied = [d for d in deltas if d.tool_result and "权限拒绝" in (d.tool_result.error or "")]
+        assert len(denied) == 1
+        # 循环未终止：模型收到拒绝后下一轮给出文本回答，最终 done
+        assert any(d.done for d in deltas)
+        assert any(d.text for d in deltas)
+
+    async def test_allowed_tool_executes(self):
+        registry = ToolRegistry()
+        registry.register(_SlowTool("read"))
+        permission = PermissionManager(workspace=None, mode=PermissionMode.PERMISSIVE)
+        provider = _MockProvider(rounds=[
+            [Delta(tool_calls=[ToolCall(id="1", name="read", arguments={})])],
+            [Delta(text="Done"), Delta(done=True)],
+        ])
+        agent = Agent(provider, registry, workspace=None, permission=permission)
+        deltas = [d async for d in agent.run([])]
+        executed = [d for d in deltas if d.tool_result and d.tool_result.output]
+        assert len(executed) == 1
 
 
 class TestAgentHistoryInjection:

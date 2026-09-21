@@ -1,7 +1,6 @@
 """执行命令工具 — 带用户确认的 Shell 命令执行。"""
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from codepilot.protocols import ToolResult
@@ -11,15 +10,9 @@ OUTPUT_LIMIT = 8000
 
 
 class RunTool(Tool):
-    def __init__(
-        self,
-        workspace: Path,
-        timeout: float = 120.0,
-        confirm_callback: Callable[[str], Awaitable[bool]] | None = None,
-    ) -> None:
+    def __init__(self, workspace: Path, timeout: float = 120.0) -> None:
         self.workspace = workspace
         self.timeout = timeout
-        self.confirm_callback = confirm_callback
 
     @property
     def name(self) -> str:
@@ -27,7 +20,7 @@ class RunTool(Tool):
 
     @property
     def description(self) -> str:
-        return "在 Shell 中执行命令。返回 stdout、stderr 和退出码。执行前会请求用户确认。超时 120 秒后自动终止。"
+        return "在 Shell 中执行命令。返回 stdout、stderr 和退出码。是否放行由权限系统裁决。超时 120 秒后自动终止。"
 
     @property
     def parameters(self) -> dict:
@@ -43,20 +36,7 @@ class RunTool(Tool):
     def side_effect(self) -> bool:
         return True
 
-    async def execute(self, command: str, confirm_callback=None) -> ToolResult:
-        cb = confirm_callback or self.confirm_callback
-        if cb is not None:
-            try:
-                result = cb(command)
-                if hasattr(result, "__await__"):
-                    approved = await result
-                else:
-                    approved = result
-            except Exception as e:
-                return ToolResult(call_id="", name=self.name, error=f"确认回调异常: {e}")
-            if not approved:
-                return ToolResult(call_id="", name=self.name, error="用户拒绝执行")
-
+    async def execute(self, command: str) -> ToolResult:
         try:
             process = await asyncio.create_subprocess_shell(
                 command, cwd=str(self.workspace),

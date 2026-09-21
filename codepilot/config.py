@@ -38,6 +38,15 @@ class LogConfig:
     level: str = "INFO"
 
 
+@dataclass
+class PermissionsConfig:
+    """权限系统配置。路径留空则用默认发现。"""
+    mode: str = "default"      # strict / default / permissive
+    user_rules: str = ""       # 用户级规则文件
+    project_rules: str = ""    # 项目级规则文件
+    local_rules: str = ""      # 本地级规则文件（永久放行写入处）
+
+
 def load_config(path: str | Path) -> list[ProviderConfig]:
     path = Path(path)
     if not path.exists():
@@ -83,6 +92,25 @@ def load_agent_config(path: str | Path) -> AgentConfig:
         max_rounds=int(entry.get("max_rounds", 10)),
         max_unknown=int(entry.get("max_unknown", 2)),
         prompt_refresh_every=int(entry.get("prompt_refresh_every", 3)),
+    )
+
+
+def load_permissions_config(path: str | Path) -> PermissionsConfig:
+    """读取可选 permissions: 段。文件缺失或无该段时用默认值。"""
+    path = Path(path)
+    if not path.exists():
+        return PermissionsConfig()
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+    except yaml.YAMLError:
+        return PermissionsConfig()
+    entry = (raw or {}).get("permissions") or {}
+    return PermissionsConfig(
+        mode=entry.get("mode", "default"),
+        user_rules=entry.get("user_rules", ""),
+        project_rules=entry.get("project_rules", ""),
+        local_rules=entry.get("local_rules", ""),
     )
 
 

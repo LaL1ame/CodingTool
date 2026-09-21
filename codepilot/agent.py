@@ -3,9 +3,10 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator
 from pathlib import Path
 
+from codepilot.permissions import PermissionManager
 from codepilot.protocols import Delta, ToolCall, ToolResult
 from codepilot.prompt import EnvContext, build_system_prompt
 from codepilot.providers import BaseProvider
@@ -19,21 +20,21 @@ class Agent:
         registry: ToolRegistry,
         workspace: Path,
         timeout: float = 120.0,
-        confirm_callback: Callable[[str], Awaitable[bool]] | None = None,
         max_rounds: int = 10,
         max_unknown: int = 2,
         env: EnvContext | None = None,
         refresh_every: int = 3,
+        permission: PermissionManager | None = None,
     ) -> None:
         self._provider = provider
         self._registry = registry
         self._workspace = workspace
         self._timeout = timeout
-        self._confirm_callback = confirm_callback
         self._max_rounds = max_rounds
         self._max_unknown = max_unknown
         self._env = env
         self._refresh_every = refresh_every
+        self._permission = permission
         self._plan_mode = False
         self._cancel_event = asyncio.Event()
         self._tool_tasks: set[asyncio.Task] = set()
@@ -161,10 +162,13 @@ class Agent:
         tool = self._registry.get(tc.name)
         if tool is None:
             return ToolResult(call_id=tc.id, name=tc.name, error=f"未知工具: {tc.name}")
+        if self._permission is not None:
+            decision = await self._permission.check(tc.name, dict(tc.arguments))
+            if not decision.allow:
+                self._logger.warning("deny %s: %s", tc.name, decision.reason)
+                return ToolResult(call_id=tc.id, name=tc.name, error=f"权限拒绝: {decision.reason}")
         try:
             kwargs = dict(tc.arguments)
-            if tc.name == "run" and self._confirm_callback is not None:
-                kwargs["confirm_callback"] = self._confirm_callback
             result = await asyncio.wait_for(tool.execute(**kwargs), timeout=self._timeout)
             if not result.call_id:
                 result.call_id = tc.id

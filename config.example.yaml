@@ -26,3 +26,10 @@ agent:
 log:
   file: logs/codepilot.log    # 相对路径，将在启动时自动创建
   level: INFO                 # DEBUG / INFO / WARNING
+
+# 权限系统配置（可选；规则优先级 deny > ask > allow，与写入层级无关）
+permissions:
+  mode: default               # strict / default / permissive（无规则命中时的兜底）
+  # 三级规则文件；留空则用默认路径（用户级 ~/.config/codepilot/permissions.yaml，
+  # 项目级 ./codepilot-permissions.yaml，本地级 ./codepilot-permissions.local.yaml）
+  # 规则格式：Tool(pattern): allow|ask|deny，如 run(git *): allow

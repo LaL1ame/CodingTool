@@ -1,6 +1,9 @@
 """测试配置层 — AgentConfig / LogConfig 解析。"""
 
-from codepilot.config import AgentConfig, LogConfig, load_agent_config, load_log_config
+from codepilot.config import (
+    AgentConfig, LogConfig, PermissionsConfig,
+    load_agent_config, load_log_config, load_permissions_config,
+)
 
 
 def _write(tmp_path, text: str):
@@ -57,3 +60,17 @@ def test_log_default_level(tmp_path):
 
 def test_log_missing_file_returns_defaults(tmp_path):
     assert load_log_config(tmp_path / "nope.yaml") == LogConfig()
+
+
+# ---- PermissionsConfig ----
+
+def test_permissions_defaults(tmp_path):
+    p = _write(tmp_path, "providers:\n  - name: a\n    protocol: openai\n    model: m\n    api_key: k\n    base_url: http://x\n")
+    assert load_permissions_config(p) == PermissionsConfig()
+
+
+def test_permissions_section_parsed(tmp_path):
+    p = _write(tmp_path, "permissions:\n  mode: strict\n  local_rules: x.local.yaml\n")
+    cfg = load_permissions_config(p)
+    assert cfg.mode == "strict"
+    assert cfg.local_rules == "x.local.yaml"
