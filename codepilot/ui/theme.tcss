@@ -1,0 +1,89 @@
+/* CodePilot 终端主题 —— Claude Code 式深色风格。
+   集中式 CSS：布局 dock + 每区样式,替代散落内联 markup。 */
+
+Screen {
+    background: #1a1a22;
+    color: #d0d0d8;
+}
+
+/* 顶部 Header */
+Header {
+    background: #111116;
+    color: #d0d0d8;
+}
+
+/* 会话区：占据剩余高度 */
+#chat {
+    height: 1fr;
+    background: #14141a;
+    color: #d0d0d8;
+    padding: 0 1;
+}
+
+/* 流式/信息区按内容收缩 */
+#stream {
+    height: auto;
+    max-height: 6;
+    background: #14141a;
+    color: #d0d0d8;
+    padding: 0 1;
+}
+
+/* 工具调用 gutter：追加进会话滚动区,持久保留 */
+#tools {
+    height: auto;
+    max-height: 20;
+    background: #1a1a22;
+    color: #d0d0d8;
+    padding: 0 1;
+}
+
+ToolRow {
+    height: auto;
+    background: transparent;
+    color: #d0d0d8;
+}
+
+/* 用户输入 */
+#prompt {
+    background: #111116;
+    color: #e0e0e8;
+    border: round $accent;
+    margin: 0 1 1 1;
+}
+
+/* —— 底部状态栏 —— */
+StatusBar {
+    dock: bottom;
+    height: 1;
+    background: #111116;
+    color: #d0d0d8;
+    padding: 0 1;
+}
+StatusBar .pill {
+    background: #26262e;
+    color: #d0d0d8;
+}
+
+/* —— 权限确认屏 —— */
+PermissionScreen #confirm-box {
+    border: round $accent;
+    padding: 1 2;
+    background: #1e1e26;
+    color: #d0d0d8;
+    align: center middle;
+}
+#confirm-title {
+    color: #ffd479;
+    text-style: bold;
+}
+#confirm-command {
+    text-style: reverse;
+    padding: 0 1;
+}
+#confirm-options {
+    padding: 1 0;
+}
+#confirm-hint {
+    color: #8888a0;
+}

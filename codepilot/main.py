@@ -17,7 +17,7 @@ from codepilot.prompt import EnvContext
 from codepilot.providers import BaseProvider
 from codepilot.agent import Agent
 from codepilot.tools import ToolRegistry, ReadTool, WriteTool, EditTool, GlobTool, GrepTool, RunTool
-from codepilot.app import CodePilotApp
+from codepilot.ui.app import CodePilotApp
 
 
 def find_config() -> Path:
