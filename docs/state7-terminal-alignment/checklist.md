@@ -15,11 +15,12 @@
 
 ## 自动化测试
 
-- [ ] `pytest tests/ -q` 全量绿(旧 58 + 新增)。
-- [ ] modes.py:工具轴循环、release→PermissionMode 映射、snapshot/restore 往返一致。
-- [ ] status_bar:累计 token 单调递增不随单轮覆盖。
-- [ ] session/store:JSONL 写入→读取往返、cwd 编码稳定、continue 取最新、resume 列表。
-- [ ] 纯结构迁移阶段旧测试无回归。
+- [x] `pytest tests/ -q` 全量绿(170)。
+- [x] modes.py:工具轴循环、release→PermissionMode 映射、snapshot/restore 往返一致。
+- [x] session/store:JSONL 写入→读取往返、cwd 编码稳定、continue 取最新、resume 列表、坏行容错。
+- [x] accept-edits:write/edit 自动放行(标 auto)、run 仍问、off 时照常。
+- [ ] status_bar:累计 token 单调递增不随单轮覆盖(逻辑在 App,T3 已实现待人工确认)。
+- [x] 纯结构迁移阶段旧测试无回归。
 
 ## 提交规范样例(Conventional Commits)
 
