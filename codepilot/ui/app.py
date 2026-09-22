@@ -43,9 +43,9 @@ class CodePilotApp(App):
              initial_modes: dict | None = None) -> None:
         super().__init__()
         self._agent = agent
-        self._modes = ModeState(release=ReleasePolicy(release))
+        self._mode_state = ModeState(release=ReleasePolicy(release))
         if initial_modes:
-            self._modes.restore(initial_modes)
+            self._mode_state.restore(initial_modes)
         self._history = history
         self._session_file = session_file
         self._chat: ChatManager | None = None
@@ -82,7 +82,7 @@ class CodePilotApp(App):
         """退出时把最终模式快照写入会话文件,供下次 resume。"""
         if self._session_file:
             from codepilot.session import store
-            store.append_mode(self._session_file, self._modes.snapshot())
+            store.append_mode(self._session_file, self._mode_state.snapshot())
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -99,7 +99,7 @@ class CodePilotApp(App):
 
     def action_cycle_axis(self) -> None:
         """Shift+Tab:Plan ⇄ Build 工具轴切换。"""
-        self._set_axis(self._modes.tool_axis.cycle_tool_axis(), announce=True)
+        self._set_axis(self._mode_state.tool_axis.cycle_tool_axis(), announce=True)
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
@@ -146,15 +146,15 @@ class CodePilotApp(App):
     # —— 模式命令处理 ——
     def _apply_modes(self) -> None:
         """把 ModeState 翻译到后端:Agent 工具轴 + PermissionManager 放行/自动编辑。"""
-        self._agent.set_plan_mode(self._modes.tool_axis is ToolAxis.PLAN)
+        self._agent.set_plan_mode(self._mode_state.tool_axis is ToolAxis.PLAN)
         perm = getattr(self._agent, "_permission", None)
         if perm is not None:
-            perm.set_mode(PermissionMode[self._modes.release_permission_name()])
-            perm.set_accept_edits(self._modes.accept_edits)
+            perm.set_mode(PermissionMode[self._mode_state.release_permission_name()])
+            perm.set_accept_edits(self._mode_state.accept_edits)
         self._refresh_status()
 
     def _set_axis(self, axis: ToolAxis, announce: bool = False) -> None:
-        self._modes.set_axis(axis)
+        self._mode_state.set_axis(axis)
         self._apply_modes()
         label = "计划模式（只读工具）" if axis is ToolAxis.PLAN else "执行模式（全部工具）"
         if announce:
@@ -171,7 +171,7 @@ class CodePilotApp(App):
         else:
             name = command  # /manual /auto /strict
         policy = ReleasePolicy(name)
-        self._modes.set_release(policy)
+        self._mode_state.set_release(policy)
         self._apply_modes()
         self.query_one("#prompt", Input).value = ""
         self.query_one("#chat", RichLog).write(
@@ -180,10 +180,10 @@ class CodePilotApp(App):
     def _cmd_edits(self, rest: str) -> None:
         arg = (rest or "").strip().lower()
         if arg in ("on", "off"):
-            self._modes.toggle_accept_edits(arg == "on")
+            self._mode_state.toggle_accept_edits(arg == "on")
         else:
-            self._modes.toggle_accept_edits()  # 无参 → 翻转
-        on = self._modes.accept_edits
+            self._mode_state.toggle_accept_edits()  # 无参 → 翻转
+        on = self._mode_state.accept_edits
         self._apply_modes()
         self.query_one("#prompt", Input).value = ""
         self.query_one("#chat", RichLog).write(
@@ -272,7 +272,7 @@ class CodePilotApp(App):
     # —— 状态栏 ——
     def _mode_summary(self) -> tuple[str, str, bool]:
         """(axis, release, accept_edits) —— 从 ModeState 读取。"""
-        return self._modes.tool_axis.value, self._modes.release.value, self._modes.accept_edits
+        return self._mode_state.tool_axis.value, self._mode_state.release.value, self._mode_state.accept_edits
 
     def _refresh_status(self) -> None:
         cfg = self._agent._provider.config
