@@ -51,6 +51,7 @@ class Decision:
     """一次工具判定的结果。"""
     allow: bool
     reason: str = ""
+    auto: bool = False  # True=因 accept-edits / auto 模式自动放行（未弹权限框）
 
 
 class PermissionManager:
@@ -68,9 +69,14 @@ class PermissionManager:
         self.human_callback = human_callback
         self.local_rules_path = local_rules_path
         self._session_cache: set[tuple[str, str]] = set()
+        self.accept_edits = False  # 自动编辑：write/edit 自动应用，run 仍走确认
 
     def set_mode(self, mode: PermissionMode) -> None:
         self.mode = mode
+
+    def set_accept_edits(self, on: bool) -> None:
+        """开启后 write/edit 的 ASK 判定自动放行（不弹确认框）。"""
+        self.accept_edits = on
 
     def _subject(self, tool: str, arguments: dict) -> str | None:
         key = SUBJECT_KEYS.get(tool)
@@ -130,6 +136,10 @@ class PermissionManager:
             return Decision(allow=False, reason=f"规则拒绝({tool})")
         if verdict is Verdict.ALLOW:
             return Decision(allow=True)
+
+        # accept-edits：write/edit 的 ask 自动应用（run 除外）→ auto 标记，不弹框
+        if verdict is Verdict.ASK and self.accept_edits and tool in ("write", "edit"):
+            return Decision(allow=True, auto=True)
 
         # 5) ask → 人在回路
         return await self._ask(tool, subject)

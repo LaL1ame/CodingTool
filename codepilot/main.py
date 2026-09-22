@@ -85,6 +85,9 @@ def main() -> None:
     # —— 权限系统：读三级规则文件 + 模式，构造 PermissionManager ——
     perms_cfg = load_permissions_config(path)
     mode = getattr(PermissionMode, perms_cfg.mode.upper(), PermissionMode.DEFAULT)
+    # 同步给正交模式状态机:permissive→auto / default→manual / strict→strict
+    startup_release = {"PERMISSIVE": "auto", "DEFAULT": "manual",
+                       "STRICT": "strict"}.get(mode.name, "manual")
     user_rules = Path(perms_cfg.user_rules) if perms_cfg.user_rules else \
         Path.home() / ".config" / "codepilot" / "permissions.yaml"
     project_rules = Path(perms_cfg.project_rules) if perms_cfg.project_rules else \
@@ -103,7 +106,7 @@ def main() -> None:
                   env=env, refresh_every=agent_config.prompt_refresh_every,
                   permission=permission)
 
-    app = CodePilotApp(agent)
+    app = CodePilotApp(agent, release=startup_release)
     # 权限人机回路：App 的 ask_permission 作为 PermissionManager 的 human_callback
     permission.human_callback = app.ask_permission
 

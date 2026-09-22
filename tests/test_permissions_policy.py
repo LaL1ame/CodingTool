@@ -147,3 +147,29 @@ class TestHumanInLoop:
         pm = PermissionManager(tmp_path, mode=PermissionMode.DEFAULT)
         d = await _check(pm, "run", command="echo hi")
         assert not d.allow
+
+class TestAcceptEdits:
+    @pytest.mark.asyncio
+    async def test_accept_edits_auto_allows_write(self, tmp_path):
+        pm = PermissionManager(tmp_path, mode=PermissionMode.DEFAULT)
+        pm.set_accept_edits(True)  # 默认 manual,write 未命中应 ask;accept-edits 自动放行
+        d = await _check(pm, "write", file_path="secrets/key.txt", content="x")
+        assert d.allow
+        assert d.auto  # 标记为自动放行,未弹框
+
+    @pytest.mark.asyncio
+    async def test_accept_edits_run_still_asks(self, tmp_path):
+        pm = PermissionManager(tmp_path, mode=PermissionMode.DEFAULT)
+        pm.set_accept_edits(True)
+        # run 即使 accept-edits 开启也会走回调(非自动);未配回调 → 拒
+        d = await _check(pm, "run", command="echo hi")
+        assert not d.allow
+        assert not d.auto
+
+    @pytest.mark.asyncio
+    async def test_accept_edits_off_asks_write(self, tmp_path):
+        pm = PermissionManager(tmp_path, mode=PermissionMode.DEFAULT)
+        pm.set_accept_edits(False)
+        d = await _check(pm, "write", file_path="secrets/key.txt", content="x")
+        assert not d.allow  # 未配回调 → 硬拒
+        assert not d.auto

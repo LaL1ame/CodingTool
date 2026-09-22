@@ -18,6 +18,8 @@ from textual.widgets import Footer, Header, Input, RichLog, Static
 from codepilot.agent import Agent
 from codepilot.chat import ChatManager
 from codepilot.commands import parse_command
+from codepilot.modes import ModeState, ReleasePolicy, ToolAxis
+from codepilot.permissions.mode import PermissionMode
 from codepilot.permissions.policy import HumanChoice
 from codepilot.ui.widgets import StatusBar, ToolRow
 
@@ -36,9 +38,10 @@ class CodePilotApp(App):
 
     CSS_PATH = "theme.tcss"
 
-    def __init__(self, agent: Agent) -> None:
+    def __init__(self, agent: Agent, release: str = "manual") -> None:
         super().__init__()
         self._agent = agent
+        self._modes = ModeState(release=ReleasePolicy(release))
         self._chat: ChatManager | None = None
         self._streaming = False
         self._stream_start: float = 0.0
@@ -65,6 +68,7 @@ class CodePilotApp(App):
         log.write(f"[bold]CodePilot[/bold] v{VERSION}  |  {cwd}\n")
         log.write(f"[dim]{cfg.name} · {cfg.model}  ({proto}) — Ready[/dim]\n")
 
+        self._apply_modes()  # 把构造传入的初始 release 同步到后端
         self._refresh_status()
 
     def compose(self) -> ComposeResult:
@@ -81,12 +85,8 @@ class CodePilotApp(App):
             self._agent.cancel()
 
     def action_cycle_axis(self) -> None:
-        """Shift+Tab:Plan ⇄ Build 工具轴切换(T2 占位,后续接 modes.py)。"""
-        on = self._agent._plan_mode
-        self._agent.set_plan_mode(not on)
-        label = "计划模式（只读工具）" if not on else "执行模式（全部工具）"
-        self.query_one("#chat", RichLog).write(f"\n[dim]── 已切换：{label}[/dim]")
-        self._refresh_status()
+        """Shift+Tab:Plan ⇄ Build 工具轴切换。"""
+        self._set_axis(self._modes.tool_axis.cycle_tool_axis(), announce=True)
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
@@ -94,18 +94,24 @@ class CodePilotApp(App):
             return
 
         command, rest = parse_command(text)
+
+        # —— 纯模式/开关命令:不进入聊天循环 ——
         if command == "exit":
             self.exit()
             return
+        if command in ("mode", "auto", "manual", "strict"):
+            self._cmd_release(command, rest)
+            return
+        if command == "edits":
+            self._cmd_edits(rest)
+            return
         if command == "plan":
-            self._agent.set_plan_mode(True)
-            self._switch_axis("plan")
+            self._set_axis(ToolAxis.PLAN, announce=True)
             if not rest:
                 return
             text = rest
         elif command == "do":
-            self._agent.set_plan_mode(False)
-            self._switch_axis("build")
+            self._set_axis(ToolAxis.BUILD, announce=True)
             if not rest:
                 return
             text = rest
@@ -124,11 +130,51 @@ class CodePilotApp(App):
         self.set_interval(1, self._tick)
         self.run_worker(self._process_chat(text), exclusive=False)
 
-    def _switch_axis(self, axis: str) -> None:
-        label = "计划模式（只读工具）" if axis == "plan" else "执行模式（全部工具）"
-        self.query_one("#chat", RichLog).write(f"\n[dim]── 已切换：{label}[/dim]")
-        self.query_one("#prompt", Input).value = ""
+    # —— 模式命令处理 ——
+    def _apply_modes(self) -> None:
+        """把 ModeState 翻译到后端:Agent 工具轴 + PermissionManager 放行/自动编辑。"""
+        self._agent.set_plan_mode(self._modes.tool_axis is ToolAxis.PLAN)
+        perm = getattr(self._agent, "_permission", None)
+        if perm is not None:
+            perm.set_mode(PermissionMode[self._modes.release_permission_name()])
+            perm.set_accept_edits(self._modes.accept_edits)
         self._refresh_status()
+
+    def _set_axis(self, axis: ToolAxis, announce: bool = False) -> None:
+        self._modes.set_axis(axis)
+        self._apply_modes()
+        label = "计划模式（只读工具）" if axis is ToolAxis.PLAN else "执行模式（全部工具）"
+        if announce:
+            self.query_one("#chat", RichLog).write(f"\n[dim]── 已切换：{label}[/dim]")
+        self.query_one("#prompt", Input).value = ""
+
+    def _cmd_release(self, command: str, rest: str) -> None:
+        if command == "mode":
+            name = (rest or "").strip().lower()
+            if name not in ("manual", "auto", "strict"):
+                self.query_one("#chat", RichLog).write(
+                    "\n[bold red]⚠ /mode 需 manual|auto|strict[/bold red]")
+                return
+        else:
+            name = command  # /manual /auto /strict
+        policy = ReleasePolicy(name)
+        self._modes.set_release(policy)
+        self._apply_modes()
+        self.query_one("#prompt", Input).value = ""
+        self.query_one("#chat", RichLog).write(
+            f"\n[dim]── 放行策略 → {name}{'（未命中自动放行）' if name == 'auto' else ''}[/dim]")
+
+    def _cmd_edits(self, rest: str) -> None:
+        arg = (rest or "").strip().lower()
+        if arg in ("on", "off"):
+            self._modes.toggle_accept_edits(arg == "on")
+        else:
+            self._modes.toggle_accept_edits()  # 无参 → 翻转
+        on = self._modes.accept_edits
+        self._apply_modes()
+        self.query_one("#prompt", Input).value = ""
+        self.query_one("#chat", RichLog).write(
+            f"\n[dim]── Accept Edits → {'ON(自动应用 write/edit)' if on else 'OFF'}[/dim]")
 
     async def _process_chat(self, text: str) -> None:
         log = self.query_one("#chat", RichLog)
@@ -212,14 +258,8 @@ class CodePilotApp(App):
 
     # —— 状态栏 ——
     def _mode_summary(self) -> tuple[str, str, bool]:
-        """(axis, release, accept_edits) —— T2 接 modes.py;先读现态。"""
-        axis = "plan" if getattr(self._agent, "_plan_mode", False) else "build"
-        mode = getattr(self._agent._permission, "mode", None)
-        release = getattr(mode, "name", "DEFAULT").lower()
-        # 映射 strict/default/permissive → manual/auto/strict
-        release = {"default": "manual", "permissive": "auto",
-                   "strict": "strict"}.get(release, release)
-        return axis, release, False
+        """(axis, release, accept_edits) —— 从 ModeState 读取。"""
+        return self._modes.tool_axis.value, self._modes.release.value, self._modes.accept_edits
 
     def _refresh_status(self) -> None:
         cfg = self._agent._provider.config
