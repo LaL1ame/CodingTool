@@ -1,10 +1,12 @@
 """CodePilot 入口。"""
 
+import argparse
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
+from codepilot.chat import Message
 from codepilot.config import (
     ConfigError, load_agent_config, load_config, load_log_config,
     load_permissions_config,
@@ -39,6 +41,39 @@ def _build_registry(workspace: Path) -> ToolRegistry:
     registry.register(GrepTool(workspace))
     registry.register(RunTool(workspace))
     return registry
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="codepilot", description="CodePilot CLI")
+    parser.add_argument("-c", "--continue", dest="continue_", action="store_true",
+                        help="继续最近一次会话")
+    parser.add_argument("-r", "--resume", action="store_true",
+                        help="列出历史会话并选择一条恢复")
+    return parser.parse_args()
+
+
+def _pick_session(cwd: Path, continue_: bool, resume: bool) -> tuple[Path, dict]:
+    """选择要恢复的会话文件,返回 (path, loaded)。无历史则新建。"""
+    from codepilot.session import store
+    sessions = store.list_sessions(cwd)
+    if not (continue_ or resume) or not sessions:
+        return store.new_session_path(cwd), {}
+    if resume and len(sessions) > 1:
+        print("历史会话:")
+        for i, p in enumerate(sessions[:10]):
+            t = datetime.fromtimestamp(p.stat().st_mtime).strftime("%m-%d %H:%M")
+            print(f"  [{i+1}] {t}  {p.name}")
+        try:
+            idx = int(input("选择编号: ").strip()) - 1
+            if 0 <= idx < len(sessions):
+                path = sessions[idx]
+            else:
+                path = sessions[0]
+        except (ValueError, EOFError, KeyboardInterrupt):
+            path = sessions[0]
+    else:
+        path = sessions[0]  # -c 或单条:续最新
+    return path, store.load_session(path)
 
 
 def main() -> None:
@@ -106,7 +141,19 @@ def main() -> None:
                   env=env, refresh_every=agent_config.prompt_refresh_every,
                   permission=permission)
 
-    app = CodePilotApp(agent, release=startup_release)
+    # —— 会话 resume：-c 续最近 / -r 列表选择,恢复消息 + 模式快照 ——
+    args = _parse_args()
+    session_path, loaded = _pick_session(workspace, args.continue_, args.resume)
+    history = [Message(role=m["role"], content=m["content"],
+                       duration=m.get("duration")) for m in loaded.get("messages", [])
+               if m.get("role") in ("user", "assistant")]
+
+    from codepilot.session import store
+    store.append_meta(session_path, provider=cfg.name, model=cfg.model, cwd=str(workspace))
+    store.project_index_dir(workspace).mkdir(exist_ok=True)
+
+    app = CodePilotApp(agent, release=startup_release, history=history,
+                       session_file=str(session_path), initial_modes=loaded.get("mode"))
     # 权限人机回路：App 的 ask_permission 作为 PermissionManager 的 human_callback
     permission.human_callback = app.ask_permission
 

@@ -23,6 +23,9 @@ logs/
 # Local permission rules (user-approved永久放行)
 codepilot-permissions.local.yaml
 
+# Project-level lightweight session index / settings
+.codepilot/
+
 # OS
 .DS_Store
 Thumbs.db

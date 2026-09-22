@@ -38,10 +38,16 @@ class CodePilotApp(App):
 
     CSS_PATH = "theme.tcss"
 
-    def __init__(self, agent: Agent, release: str = "manual") -> None:
+    def __init__(self, agent: Agent, release: str = "manual",
+             history: list | None = None, session_file: str | None = None,
+             initial_modes: dict | None = None) -> None:
         super().__init__()
         self._agent = agent
         self._modes = ModeState(release=ReleasePolicy(release))
+        if initial_modes:
+            self._modes.restore(initial_modes)
+        self._history = history
+        self._session_file = session_file
         self._chat: ChatManager | None = None
         self._streaming = False
         self._stream_start: float = 0.0
@@ -52,7 +58,8 @@ class CodePilotApp(App):
         self._status_round: str = ""
 
     def on_mount(self) -> None:
-        self._chat = ChatManager(self._agent)
+        self._chat = ChatManager(self._agent, history=self._history,
+                                 session_file=self._session_file)
 
         cwd = os.getcwd()
         if len(cwd) > 50:
@@ -70,6 +77,12 @@ class CodePilotApp(App):
 
         self._apply_modes()  # 把构造传入的初始 release 同步到后端
         self._refresh_status()
+
+    def on_unmount(self) -> None:
+        """退出时把最终模式快照写入会话文件,供下次 resume。"""
+        if self._session_file:
+            from codepilot.session import store
+            store.append_mode(self._session_file, self._modes.snapshot())
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)

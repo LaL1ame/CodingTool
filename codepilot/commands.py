@@ -13,6 +13,9 @@ def parse_command(text: str) -> tuple[str | None, str]:
       /plan <消息>   → ("plan", "<消息>")   # 切计划模式并发送 <消息>
       /do            → ("do", "")
       /do <消息>     → ("do", "<消息>")
+      /mode <策略>   → ("mode", "<策略 manual|auto|strict>")
+      /auto | /manual | /strict → (同名单命令, "")
+      /edits [on|off]→ ("edits", "on|off|")
     非命令（普通消息）→ (None, 原文)
     """
     first, _, rest = text.partition(" ")
@@ -22,4 +25,10 @@ def parse_command(text: str) -> tuple[str | None, str]:
         return ("plan", rest.strip())
     if first == "/do":
         return ("do", rest.strip())
+    if first == "/mode":
+        return ("mode", rest.strip())
+    if first in ("/auto", "/manual", "/strict"):
+        return (first[1:], "")
+    if first == "/edits":
+        return ("edits", rest.strip())
     return (None, text)
