@@ -195,7 +195,8 @@ class CodePilotApp(App):
         stream = self.query_one("#stream", Static)
         tools_container = self.query_one("#tools", Vertical)
         stream.update("")
-        # 不再 remove_children() —— 工具行跨轮保留(持久 gutter)
+        tools_container.remove_children()  # 瞬时面板按轮清空(已定型的历史写入 chat 滚动区)
+        self._tool_rows.clear()
 
         buf: list[str] = []
         try:
@@ -246,6 +247,7 @@ class CodePilotApp(App):
 
                 if d.done:
                     stream.update("")
+                    self._flush_tool_rows(log, tools_container)
                     log.write("\n" + "".join(buf))
                     elapsed = time.time() - self._stream_start
                     log.write(f"\n[dim]── {elapsed:.1f}s[/dim]")
@@ -256,11 +258,28 @@ class CodePilotApp(App):
         finally:
             try:
                 stream.update("")
+                tools_container.remove_children()
             except Exception:
                 pass
+            self._tool_rows.clear()
             self._stop_timer()
             inp.disabled = False
             self._streaming = False
+
+    def _flush_tool_rows(self, log: RichLog, tools_container: Vertical) -> None:
+        """把本轮的已定型工具行写入可滚动会话区,再清空瞬时面板。
+
+        使工具历史随对话滚动(可回溯),不占固定屏幕高度 —— 对齐 Claude Code。
+        """
+        if self._tool_rows:
+            log.write("\n")
+            for row in list(self._tool_rows.values()):
+                log.write(row.line())
+        try:
+            tools_container.remove_children()
+        except Exception:
+            pass
+        self._tool_rows.clear()
 
     async def ask_permission(self, tool: str, subject: str) -> HumanChoice:
         from codepilot.ui.screens import PermissionScreen
