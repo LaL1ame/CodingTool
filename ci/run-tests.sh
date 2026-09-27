@@ -69,17 +69,18 @@ if [ "$INSTALL" = "1" ]; then
 fi
 
 # ---- 3. 静态检查 ----
-step "语法检查（py_compile）"
-"$PYTHON" -m py_compile codepilot/*.py codepilot/tools/*.py tests/*.py
-pass "语法检查通过"
+step "语法检查（py_compile，递归所有子包）"
+mapfile -t PYFILES < <(find codepilot tests -name '*.py')
+"$PYTHON" -m py_compile "${PYFILES[@]}"
+pass "语法检查通过（${#PYFILES[@]} 个文件）"
 
 step "导入 / 循环依赖检查（核心模块）"
-"$PYTHON" -c "import codepilot, codepilot.agent, codepilot.chat, codepilot.config, codepilot.protocols, codepilot.tools"
+"$PYTHON" -c "import codepilot, codepilot.agent, codepilot.chat, codepilot.config, codepilot.protocols, codepilot.tools, codepilot.modes, codepilot.commands"
 pass "核心模块导入通过"
 
 if "$PYTHON" -c "import textual" 2>/dev/null; then
-  "$PYTHON" -c "import codepilot.app, codepilot.main"
-  pass "全模块导入通过（含 TUI）"
+  "$PYTHON" -c "import codepilot.ui.app, codepilot.session.store, codepilot.main"
+  pass "全模块导入通过（含 TUI / 会话）"
 else
   warn "textual 未安装，跳过 app/main 导入检查（本地可运行；CI 请加 --install）"
 fi
