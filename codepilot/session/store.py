@@ -40,6 +40,7 @@ def new_session_path(cwd: str | Path, ts: float | None = None) -> Path:
 
 
 def _write_line(path: Path, obj: dict) -> None:
+    path = Path(path)  # 兼容 str / Path,避免调用方类型不一致
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(obj, ensure_ascii=False) + "\n")

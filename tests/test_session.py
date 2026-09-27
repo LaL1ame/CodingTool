@@ -43,6 +43,16 @@ def test_append_and_load_roundtrip(tmp_path):
     assert loaded["meta"]["provider"] == "D"
 
 
+def test_append_accepts_str_path(tmp_path):
+    """App.on_unmount 传 session_file 是 str,应同样可写(回归 _modes 崩溃)。"""
+    p = store.new_session_path(tmp_path, ts=7)
+    store.append_mode(str(p), {"tool_axis": "build", "release": "auto", "accept_edits": True})
+    store.append_message(str(p), role="user", content="hi")
+    loaded = store.load_session(p)
+    assert loaded["mode"]["release"] == "auto"
+    assert loaded["messages"][0]["content"] == "hi"
+
+
 def test_load_missing_returns_empty(tmp_path):
     loaded = store.load_session(tmp_path / "nope.jsonl")
     assert loaded["messages"] == [] and loaded["mode"] is None
