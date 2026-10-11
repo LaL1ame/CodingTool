@@ -35,3 +35,6 @@ Thumbs.db
 .agents/
 skills-lock.json
 *.claude-events.jsonl
+
+# state9 人工验收用大源文件(测试残留,不入 git)
+thousands.py
