@@ -29,3 +29,9 @@ codepilot-permissions.local.yaml
 # OS
 .DS_Store
 Thumbs.db
+
+# Agent 工具件(本地 CLI 配置 / 已装 skills,非项目代码)
+.claude/
+.agents/
+skills-lock.json
+*.claude-events.jsonl
