@@ -1,7 +1,7 @@
 """正交模式状态机 —— 对齐 Claude Code 的模式语言。
 
 三个互相独立的开关(不是单态循环):
-- ToolAxis.tool_axis: PLAN(只读) / BUILD(全工具)   ← Shift+Tab 切换
+- ToolAxis.tool_axis: PLAN(只读) / BUILD(全工具)   ← 由 /plan /do 切换
 - ReleasePolicy.release: MANUAL / AUTO / STRICT     ← 未命中规则的兜底
 - bool.accept_edits: 是否自动应用 write/edit(不弹框)
 
@@ -32,6 +32,13 @@ RELEASE_TO_PERMISSION = {
     ReleasePolicy.STRICT: "STRICT",
 }
 
+# 放行模式循环(Claude Code 式:放行策略 + 自动编辑合并演进)
+RELEASE_CYCLE: list[tuple[ReleasePolicy, bool]] = [
+    (ReleasePolicy.MANUAL, False),  # 默认:每次询问 + 手动确认编辑
+    (ReleasePolicy.AUTO, True),     # 自由:未命中即放行 + 自动应用编辑
+    (ReleasePolicy.STRICT, False),  # 严格:收窄 + 手动确认编辑
+]
+
 
 @dataclass
 class ModeState:
@@ -55,6 +62,15 @@ class ModeState:
     # —— 放行策略 ——
     def set_release(self, policy: ReleasePolicy) -> None:
         self.release = policy
+
+    def cycle_release(self) -> tuple[ReleasePolicy, bool]:
+        """Claude Code 式循环:MANUAL→AUTO→STRICT,并同步 accept_edits。"""
+        idx = next(i for i, (p, _) in enumerate(RELEASE_CYCLE)
+                   if p is self.release)
+        next_release, next_ae = RELEASE_CYCLE[(idx + 1) % len(RELEASE_CYCLE)]
+        self.release = next_release
+        self.accept_edits = next_ae
+        return next_release, next_ae
 
     def release_permission_name(self) -> str:
         """映射为 PermissionMode 名(由 App 转换成枚举)。"""

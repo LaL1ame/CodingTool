@@ -34,7 +34,7 @@ VERSION = "0.2.0"
 
 class CodePilotApp(App):
     BINDINGS = [("ctrl+c", "quit", "退出"), ("escape", "cancel_loop", "取消"),
-                ("shift+tab", "cycle_axis", "切模式")]
+                ("f2", "cycle_release", "切换模式")]
 
     CSS_PATH = "theme.tcss"
 
@@ -97,9 +97,14 @@ class CodePilotApp(App):
         if self._streaming:
             self._agent.cancel()
 
-    def action_cycle_axis(self) -> None:
-        """Shift+Tab:Plan ⇄ Build 工具轴切换。"""
-        self._set_axis(self._mode_state.tool_axis.cycle_tool_axis(), announce=True)
+    def action_cycle_release(self) -> None:
+        """F2:Claude Code 式放行模式循环(MANUAL→AUTO→STRICT,同步 AE)。"""
+        policy, ae = self._mode_state.cycle_release()
+        self._apply_modes()
+        ae_txt = " · 自动编辑 ON" if ae else ""
+        self.query_one("#chat", RichLog).write(
+            f"\n[dim]── 模式 → {policy.value}{ae_txt}[/dim]")
+        self.query_one("#prompt", Input).value = ""
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()

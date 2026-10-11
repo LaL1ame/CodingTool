@@ -45,7 +45,7 @@ class PermissionScreen(Screen[HumanChoice]):
             yield Static(self._render_options(), id="confirm-options")
             yield Static(
                 "↑↓ 选择  Enter 确认  1-4 直达  Esc 拒绝 · "
-                "[dim]Shift+Tab 可切换 Plan/Build 模式[/dim]",
+                "[dim]F2 可切换放行模式[/dim]",
                 id="confirm-hint",
             )
 
