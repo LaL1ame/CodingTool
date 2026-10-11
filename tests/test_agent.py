@@ -32,6 +32,9 @@ class _MockProvider(BaseProvider):
         for d in self._rounds[idx]:
             yield d
 
+    async def complete(self, system, messages) -> str:
+        return "summary"
+
 
 class _SlowTool(Tool):
     def __init__(self, name, delay=0.0, side_effect=False):

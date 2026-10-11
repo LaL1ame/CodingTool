@@ -9,9 +9,10 @@ from pathlib import Path
 
 from codepilot.chat import Message
 from codepilot.config import (
-    ConfigError, load_agent_config, load_config, load_log_config,
-    load_mcp_config, load_permissions_config,
+    ConfigError, load_agent_config, load_config, load_context_config,
+    load_log_config, load_mcp_config, load_permissions_config,
 )
+from codepilot.context import ContextManager
 from codepilot.logging_setup import setup_logging
 from codepilot.permissions import PermissionManager
 from codepilot.permissions.loader import load_rules_from_files
@@ -138,10 +139,17 @@ def main() -> None:
     )
 
     env = EnvContext(cwd=str(workspace), date=datetime.now().strftime("%Y-%m-%d"))
+
+    # —— 上下文管理(state9):context: 段配置 + ContextManager(chat 由 App.on_mount 补绑)——
+    ctx_config = load_context_config(path)
+    context_manager = ContextManager(
+        provider=provider, config=ctx_config,
+        offload_dir=workspace / ".codepilot" / "context",
+    )
     agent = Agent(provider=provider, registry=registry, workspace=workspace,
                   max_rounds=agent_config.max_rounds, max_unknown=agent_config.max_unknown,
                   env=env, refresh_every=agent_config.prompt_refresh_every,
-                  permission=permission)
+                  permission=permission, context_manager=context_manager)
 
     # —— 会话 resume：-c 续最近 / -r 列表选择,恢复消息 + 模式快照 ——
     args = _parse_args()
@@ -155,7 +163,8 @@ def main() -> None:
     store.project_index_dir(workspace).mkdir(exist_ok=True)
 
     app = CodePilotApp(agent, release=startup_release, history=history,
-                       session_file=str(session_path), initial_modes=loaded.get("mode"))
+                       session_file=str(session_path), initial_modes=loaded.get("mode"),
+                       context_manager=context_manager)
 
     # —— MCP:启动时连接并注册工具。必须与 App 同一事件循环——
     # app.run() 内部会自开一个 loop;若先用另一段 asyncio.run 连接 stdio/http

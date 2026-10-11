@@ -25,6 +25,7 @@ class Agent:
         env: EnvContext | None = None,
         refresh_every: int = 3,
         permission: PermissionManager | None = None,
+        context_manager=None,
     ) -> None:
         self._provider = provider
         self._registry = registry
@@ -35,6 +36,7 @@ class Agent:
         self._env = env
         self._refresh_every = refresh_every
         self._permission = permission
+        self._context_manager = context_manager  # 可选注入(层1压缩,state9)
         self._plan_mode = False
         self._cancel_event = asyncio.Event()
         self._tool_tasks: set[asyncio.Task] = set()
@@ -97,6 +99,8 @@ class Agent:
                     tool_calls = delta.tool_calls
                     yield delta
                 if delta.usage is not None:
+                    if self._context_manager is not None:
+                        self._context_manager.on_usage_anchor(delta.usage.input_tokens)
                     if delta.usage.cache_read is not None:
                         self._logger.info(
                             "round %d cache read=%d creation=%d",
@@ -138,6 +142,9 @@ class Agent:
             # —— 有工具调用 → 回灌助手消息 → 执行 → 回灌结果 → 下一轮 ——
             self._append_assistant(messages, "".join(text_parts), tool_calls)
             results = await self._execute_batched(tool_calls)
+            # 层1:可选注入 context_manager 时,对每个工具结果做阈值存盘(替身回灌)
+            if self._context_manager is not None:
+                results = [await self._context_manager.prep_tool_result(r) for r in results]
             for r in results:
                 if r.error:
                     self._logger.error("  tool %s error: %s", r.name, r.error)

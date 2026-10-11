@@ -66,6 +66,13 @@ class BaseProtocol(ABC):
     ) -> AsyncIterator[Delta]:
         ...
 
+    @abstractmethod
+    async def complete(self, system: str, messages: list[dict]) -> str:
+        """非流式纯文本完成(F4.3 载体):给摘要这类独立、禁工具、不入主对话
+        统计的调用。返回完整文本;失败抛 HTTPError。usage 不回流主 Delta。
+        """
+        ...
+
 
 class AnthropicProtocol(BaseProtocol):
     async def stream(
@@ -99,6 +106,26 @@ class AnthropicProtocol(BaseProtocol):
                         yield d
         except httpx.HTTPError as e:
             yield Delta(error=str(e))
+
+    async def complete(self, system: str, messages: list[dict]) -> str:
+        """Anthropic 非流式纯文本完成(禁工具——请求体不含 tools 字段)。"""
+        body: dict = {
+            "model": self.model, "messages": messages,
+            "max_tokens": 4096, "system": [{"type": "text", "text": system}],
+        }
+        headers = {
+            "x-api-key": self.api_key, "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        url = f"{self.base_url}/v1/messages"
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(url, json=body, headers=headers)
+            if resp.status_code != 200:
+                raise httpx.HTTPError(f"HTTP {resp.status_code}: {resp.text[:300]}")
+            data = resp.json()
+            parts = [b.get("text", "") for b in data.get("content", [])
+                     if isinstance(b, dict) and b.get("type") == "text"]
+            return "".join(parts)
 
     async def _stream_from_lines(self, lines: AsyncIterator[str]) -> AsyncIterator[Delta]:
         """把 SSE 文本行流解析为 Delta 事件（与 I/O 解耦，便于测试）。"""
@@ -230,6 +257,22 @@ class OpenAIProtocol(BaseProtocol):
                         yield d
         except httpx.HTTPError as e:
             yield Delta(error=str(e))
+
+    async def complete(self, system: str, messages: list[dict]) -> str:
+        """OpenAI 非流式纯文本完成(禁工具——不传 tools 字段)。"""
+        body: dict = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": system}, *messages],
+            "stream": False,
+        }
+        headers = {"Authorization": f"Bearer {self.api_key}", "content-type": "application/json"}
+        url = _chat_completions_url(self.base_url)
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(url, json=body, headers=headers)
+            if resp.status_code != 200:
+                raise httpx.HTTPError(f"HTTP {resp.status_code}: {resp.text[:300]}")
+            data = resp.json()
+            return data["choices"][0]["message"]["content"] or ""
 
     async def _stream_from_lines(self, lines: AsyncIterator[str]) -> AsyncIterator[Delta]:
         """把 SSE 文本行流解析为 Delta 事件（与 I/O 解耦，便于测试）。"""

@@ -40,9 +40,10 @@ class CodePilotApp(App):
 
     def __init__(self, agent: Agent, release: str = "manual",
              history: list | None = None, session_file: str | None = None,
-             initial_modes: dict | None = None) -> None:
+             initial_modes: dict | None = None, context_manager=None) -> None:
         super().__init__()
         self._agent = agent
+        self._context_manager = context_manager
         self._mode_state = ModeState(release=ReleasePolicy(release))
         if initial_modes:
             self._mode_state.restore(initial_modes)
@@ -60,6 +61,10 @@ class CodePilotApp(App):
     def on_mount(self) -> None:
         self._chat = ChatManager(self._agent, history=self._history,
                                  session_file=self._session_file)
+        # 注入上下文管理器:绑定 chat + 注入 agent(层1拦截/usage锚点)
+        if self._context_manager is not None:
+            self._context_manager.attach_chat(self._chat)
+            self._agent._context_manager = self._context_manager
 
         cwd = os.getcwd()
         if len(cwd) > 50:
@@ -122,6 +127,15 @@ class CodePilotApp(App):
             return
         if command == "edits":
             self._cmd_edits(rest)
+            return
+        if command == "compact":
+            _log = self.query_one("#chat", RichLog)
+            _inp = self.query_one("#prompt", Input)
+            _inp.value = ""
+            if self._context_manager is None:
+                _log.write("\n[bold red]⚠ 上下文管理未启用[/bold red]")
+            else:
+                self.run_worker(self._cmd_compact(_log))
             return
         if command == "plan":
             self._set_axis(ToolAxis.PLAN, announce=True)
@@ -194,6 +208,19 @@ class CodePilotApp(App):
         self.query_one("#chat", RichLog).write(
             f"\n[dim]── Accept Edits → {'ON(自动应用 write/edit)' if on else 'OFF'}[/dim]")
 
+    async def _cmd_compact(self, log) -> None:
+        """F6.1 手动压缩:强制生成摘要并改写历史。"""
+        try:
+            result = await self._context_manager.compact_manual()
+        except Exception as e:
+            log.write(f"\n[bold red]⚠ 压缩失败: {e}[/bold red]")
+            return
+        if result is None:
+            log.write("\n[dim]── 无可压缩(历史过短或已熔断)[/dim]")
+        else:
+            log.write("\n[dim]── 已完成手动压缩[/dim]")
+        self._refresh_status()
+
     async def _process_chat(self, text: str) -> None:
         log = self.query_one("#chat", RichLog)
         inp = self.query_one("#prompt", Input)
@@ -205,6 +232,12 @@ class CodePilotApp(App):
 
         buf: list[str] = []
         try:
+            # 层2自动触发:send_message 前判断是否需压缩累积历史
+            if self._context_manager is not None:
+                compacted = await self._context_manager.pre_request()
+                if compacted is not None:
+                    log.write("\n[dim]── 上下文已压缩,早期消息被摘要替代[/dim]")
+                    self._refresh_status()
             async for d in self._chat.send_message(text):
                 if d.error:
                     stream.update("")
@@ -302,10 +335,13 @@ class CodePilotApp(App):
         cfg = self._agent._provider.config
         axis, release, ae = self._mode_summary()
         sb = self.query_one(StatusBar)
+        ctx_usage = (self._context_manager.current_usage_text()
+                     if self._context_manager is not None else "")
         sb.update_state(
             axis=axis, release=release, accept_edits=ae, model=cfg.model,
             tokens=self._tokens_in + self._tokens_out,
             elapsed_s=max(0.0, time.time() - self._stream_start) if self._stream_start else 0.0,
+            ctx_usage=ctx_usage,
         )
         self.sub_title = f"{cfg.name}  |  {cfg.model}  {self._status_round}"
 

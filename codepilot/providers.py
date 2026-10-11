@@ -19,6 +19,11 @@ class BaseProvider(ABC):
     ) -> AsyncIterator[Delta]:
         ...
 
+    @abstractmethod
+    async def complete(self, system: str, messages: list[dict]) -> str:
+        """非流式纯文本完成(F4.3):摘要独立调用、禁工具、不入主对话统计。"""
+        ...
+
     @staticmethod
     def create(config: ProviderConfig) -> "BaseProvider":
         proto = config.protocol.lower()
@@ -44,6 +49,9 @@ class AnthropicProvider(BaseProvider):
         ):
             yield d
 
+    async def complete(self, system: str, messages: list[dict]) -> str:
+        return await self._protocol.complete(system, messages)
+
 
 class OpenAIProvider(BaseProvider):
     def __init__(self, config: ProviderConfig) -> None:
@@ -56,3 +64,6 @@ class OpenAIProvider(BaseProvider):
     ) -> AsyncIterator[Delta]:
         async for d in self._protocol.stream(messages, tools=tools, system=system):
             yield d
+
+    async def complete(self, system: str, messages: list[dict]) -> str:
+        return await self._protocol.complete(system, messages)

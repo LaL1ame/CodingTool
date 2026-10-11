@@ -8,6 +8,8 @@ from typing import Literal, Mapping
 
 import yaml
 
+from codepilot.context.budget import ContextConfig
+
 logger = logging.getLogger("codepilot.config")
 
 _ENV_PATTERN = re.compile(r"\$\{([^}]+)\}")
@@ -216,6 +218,28 @@ def load_mcp_config(
         except ConfigError as e:
             logger.warning("MCP server %r 配置无效,已跳过: %s", name, e)
     return specs
+
+
+def load_context_config(path: str | Path) -> "ContextConfig":
+    """读取可选 context: 段。文件缺失或无该段时用默认值。"""
+    ctx = ContextConfig()
+    path = Path(path)
+    if not path.exists():
+        return ctx
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+    except yaml.YAMLError:
+        return ctx
+    entry = (raw or {}).get("context") or {}
+    ctx.window = int(entry.get("window", ctx.window))
+    ctx.auto_margin = int(entry.get("auto_margin", ctx.auto_margin))
+    ctx.manual_margin = int(entry.get("manual_margin", ctx.manual_margin))
+    ctx.tool_threshold_n = int(entry.get("tool_threshold_n", ctx.tool_threshold_n))
+    ctx.tool_batch_threshold_m = int(entry.get("tool_batch_threshold_m", ctx.tool_batch_threshold_m))
+    ctx.compact_keep_tokens = int(entry.get("compact_keep_tokens", ctx.compact_keep_tokens))
+    ctx.compact_keep_min_msgs = int(entry.get("compact_keep_min_msgs", ctx.compact_keep_min_msgs))
+    return ctx
 
 
 def _build_spec(name: str, raw: dict, env: Mapping[str, str] | None) -> McpServerSpec:
