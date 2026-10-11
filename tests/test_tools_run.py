@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 from codepilot.tools.run import RunTool
 
@@ -18,7 +20,9 @@ class TestRunTool:
         assert "hello_test" in r.output
 
     async def test_run_with_exit_code(self, tool):
-        r = await tool.execute(command="sh -c 'exit 2'")
+        # 跨平台:不依赖 POSIX 的 sh,用跑测试的解释器制造"退出码=2"
+        cmd = f'"{sys.executable}" -c "import sys; sys.exit(2)"'
+        r = await tool.execute(command=cmd)
         assert "Exit code: 2" in r.output
 
     async def test_run_stderr_captured(self, tool):
