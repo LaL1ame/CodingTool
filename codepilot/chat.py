@@ -23,6 +23,13 @@ class ChatManager:
         self.agent = agent
         self.history: list[Message] = list(history) if history else []
         self.session_file = Path(session_file) if session_file else None
+        # F0:持久化的完整 LLM 消息序列（协议原生 dict）。
+        # agent.run 原地向上追加助手消息与工具结果；跨 send_message 调用保持同一
+        # 对象 → 工具结果跨轮存活,且 tool_use/tool_result 的 id 天然配对。
+        self._msgs: list[dict] = [
+            {"role": m.role, "content": m.content} for m in self.history
+            if m.role in ("user", "assistant")
+        ]
 
     def _record(self, role: str, content: str, duration: float | None = None) -> None:
         """若配置了会话文件,把一条消息追加为 JSONL 行(resume 用)。"""
@@ -33,12 +40,17 @@ class ChatManager:
                              duration=duration)
 
     def build_context(self) -> list[dict]:
-        """返回历史消息（不含 system —— system 由 agent 每轮按协议串行化注入）。"""
-        return [{"role": m.role, "content": m.content} for m in self.history]
+        """返回持久化的完整 LLM 消息序列（F0）。
+
+        含 agent.run 跨轮原地追加的助手消息与工具结果。不含 system（system 由
+        agent 每轮按协议串行化注入）。返回同一 _msgs 对象 → run 原地追加即持久。
+        """
+        return self._msgs
 
     async def send_message(self, content: str) -> AsyncIterator[Delta]:
         self.history.append(Message(role="user", content=content))
         self._record("user", content)
+        self._msgs.append({"role": "user", "content": content})
         ctx = self.build_context()
         full: list[str] = []
         started = time.time()
