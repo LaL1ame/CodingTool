@@ -1,9 +1,16 @@
-"""配置层：YAML 读取、校验、ProviderConfig。"""
+"""配置层：YAML 读取、校验、ProviderConfig、MCP server 声明。"""
 
-from dataclasses import dataclass
+import logging
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal, Mapping
 
 import yaml
+
+logger = logging.getLogger("codepilot.config")
+
+_ENV_PATTERN = re.compile(r"\$\{([^}]+)\}")
 
 
 class ConfigError(Exception):
@@ -128,4 +135,114 @@ def load_log_config(path: str | Path) -> LogConfig:
     return LogConfig(
         file=entry.get("file", ""),
         level=entry.get("level", "INFO"),
+    )
+
+
+@dataclass
+class McpServerSpec:
+    """一条 MCP server 声明(合并两层 config 后)。
+
+    type: stdio 走本地子进程 + 管道;http 走远程 Streamable HTTP。
+    read_only=True 时该 server 的工具被视为只读(side_effect=False),
+    可进 plan 模式、可并行执行(默认 False 保守对待)。
+    """
+
+    name: str
+    type: Literal["stdio", "http"]
+    read_only: bool = False
+    # — stdio —
+    command: str | None = None
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+    # — http —
+    url: str | None = None
+    headers: dict[str, str] = field(default_factory=dict)
+
+
+def expand_env(value: str, env: Mapping[str, str] | None = None) -> str:
+    """把字符串中的 ${VAR} 用 env(默认 os.environ)替换。
+
+    Raises:
+        ConfigError: 引用的变量未定义(符合 N4:不含糊地带病启动)。
+    """
+    env = env if env is not None else __import__("os").environ
+
+    def _sub(match: re.Match) -> str:
+        name = match.group(1)
+        if name not in env:
+            raise ConfigError(f"环境变量未定义: {name}")
+        return env[name]
+
+    return _ENV_PATTERN.sub(_sub, value)
+
+
+def _read_mcp_map(path: Path | None) -> dict:
+    """读单个 YAML 的 mcp: 段。文件缺失/无该段 → 空 dict。"""
+    if path is None or not path.exists():
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+    except yaml.YAMLError:
+        return {}
+    section = (raw or {}).get("mcp")
+    return section if isinstance(section, dict) else {}
+
+
+def load_mcp_config(
+    user_path: Path | None,
+    project_path: Path | None,
+    env: Mapping[str, str] | None = None,
+) -> list[McpServerSpec]:
+    """并读用户级 + 项目级 config.yaml 的 mcp: 段,合并 server 表(项目盖用户,F1)。
+
+    对每条声明做 ${VAR} 展开(命令/args/env/url/headers,含 key 名)。
+    未定义变量 → 该 server 记为配置错误,记 warning 后跳过(N4),不外溢崩溃。
+
+    返回合并后**有效**的 server 列表(顺序:用户级在前,项目级同名覆盖)。
+    """
+    merged: dict = {}
+    for p in (user_path, project_path):
+        if p is not None and p.exists():
+            merged.update(_read_mcp_map(p))
+
+    specs: list[McpServerSpec] = []
+    for name, raw in merged.items():
+        if not isinstance(raw, dict):
+            logger.warning("MCP server %r 配置不是 map,已跳过", name)
+            continue
+        try:
+            specs.append(_build_spec(name, raw, env))
+        except ConfigError as e:
+            logger.warning("MCP server %r 配置无效,已跳过: %s", name, e)
+    return specs
+
+
+def _build_spec(name: str, raw: dict, env: Mapping[str, str] | None) -> McpServerSpec:
+    spec_type = str(raw.get("type", "")).lower()
+    if spec_type not in ("stdio", "http"):
+        raise ConfigError(f"type 必须是 stdio|http, 实际为 {spec_type!r}")
+
+    read_only = bool(raw.get("read_only", False))
+
+    if spec_type == "stdio":
+        command = expand_env(str(raw.get("command", "")), env)
+        if not command:
+            raise ConfigError("stdio server 缺少 command")
+        args = [expand_env(str(a), env) for a in raw.get("args", [])]
+        env_map = {expand_env(str(k), env): expand_env(str(v), env) for k, v in
+                   (raw.get("env") or {}).items()}
+        return McpServerSpec(
+            name=name, type="stdio", read_only=read_only,
+            command=command, args=args, env=env_map,
+        )
+
+    url = expand_env(str(raw.get("url", "")), env)
+    if not url:
+        raise ConfigError("http server 缺少 url")
+    headers = {expand_env(str(k), env): expand_env(str(v), env) for k, v in
+               (raw.get("headers") or {}).items()}
+    return McpServerSpec(
+        name=name, type="http", read_only=read_only,
+        url=url, headers=headers,
     )

@@ -1,6 +1,7 @@
 """CodePilot 入口。"""
 
 import argparse
+import asyncio
 import os
 import sys
 from datetime import datetime
@@ -9,7 +10,7 @@ from pathlib import Path
 from codepilot.chat import Message
 from codepilot.config import (
     ConfigError, load_agent_config, load_config, load_log_config,
-    load_permissions_config,
+    load_mcp_config, load_permissions_config,
 )
 from codepilot.logging_setup import setup_logging
 from codepilot.permissions import PermissionManager
@@ -18,6 +19,7 @@ from codepilot.permissions.mode import PermissionMode
 from codepilot.prompt import EnvContext
 from codepilot.providers import BaseProvider
 from codepilot.agent import Agent
+from codepilot.mcp import McpManager
 from codepilot.tools import ToolRegistry, ReadTool, WriteTool, EditTool, GlobTool, GrepTool, RunTool
 from codepilot.ui.app import CodePilotApp
 
@@ -154,10 +156,34 @@ def main() -> None:
 
     app = CodePilotApp(agent, release=startup_release, history=history,
                        session_file=str(session_path), initial_modes=loaded.get("mode"))
-    # 权限人机回路：App 的 ask_permission 作为 PermissionManager 的 human_callback
-    permission.human_callback = app.ask_permission
 
-    app.run()
+    # —— MCP:启动时连接并注册工具。必须与 App 同一事件循环——
+    # app.run() 内部会自开一个 loop;若先用另一段 asyncio.run 连接 stdio/http
+    # 传输,那些通道会绑死在已关闭的 loop 上,进 App 后全部失效。故统一在此 loop。
+    user_cfg = Path.home() / ".config" / "codepilot" / "config.yaml"
+    proj_cfg = Path(os.environ.get("MEWCODE_CONFIG", str(Path.cwd() / "config.yaml")))
+    mcp_specs = load_mcp_config(user_cfg, proj_cfg)
+    mcp_manager = McpManager(registry)
+
+    async def _run_ui() -> None:
+        # MCP 后台连接:不阻塞 TUI 启动(远端 server 握手可能数秒/超时)。
+        # Agent 每轮现读 registry,工具就绪后自动出现;启动即用的取舍:
+        # "Agent 消费前注册"由同步保证放宽为"就绪即用"(后台连上即注册)。
+        connect_task: asyncio.Task | None = None
+        if mcp_specs:
+            connect_task = asyncio.create_task(mcp_manager.connect_all(mcp_specs))
+        # 权限人机回路：App 的 ask_permission 作为 PermissionManager 的 human_callback
+        permission.human_callback = app.ask_permission
+        await app.run_async()
+        if connect_task is not None and not connect_task.done():
+            connect_task.cancel()
+            try:
+                await connect_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        await mcp_manager.close_all()
+
+    asyncio.run(_run_ui())
 
 
 if __name__ == "__main__":
