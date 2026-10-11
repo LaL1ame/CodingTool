@@ -24,7 +24,8 @@ class StatusBar(Static):
         return f"↑{total}t"
 
     def update_state(self, *, axis: str, release: str, accept_edits: bool,
-                     model: str, tokens: int, elapsed_s: float) -> None:
+                     model: str, tokens: int, elapsed_s: float,
+                     ctx_usage: str = "") -> None:
         """组装状态行 markup。axis/release 取 ToolAxis/ReleasePolicy.value。"""
         ac = palette.axis_color(axis)
         rc = palette.release_color(release)
@@ -36,5 +37,8 @@ class StatusBar(Static):
             f"[{ae}]AE[/{ae}]" if accept_edits else "AE-off",
         ]
         line = " · ".join(markers)
-        line += f"  {model}  {self.render_tokens(tokens)}  ⏱{elapsed_s:.0f}s"
+        if ctx_usage:
+            line += f"  {model}  {ctx_usage}  ⏱{elapsed_s:.0f}s"
+        else:
+            line += f"  {model}  {self.render_tokens(tokens)}  ⏱{elapsed_s:.0f}s"
         self.update(line)
