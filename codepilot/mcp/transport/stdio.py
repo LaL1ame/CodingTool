@@ -158,19 +158,14 @@ class StdioTransport(Transport):
         proc, self._proc = self._proc, None
         if proc is None:
             return
-        # 先关管道,避免 Windows Proactor 在退出时报告 unclosed transport
-        for stream in (proc.stdin, proc.stdout, proc.stderr):
-            if stream is not None:
-                try:
-                    stream.close()
-                except (BrokenPipeError, OSError, ValueError):
-                    pass
         try:
             proc.terminate()
             await proc.wait()
         except (ProcessLookupError, OSError, ValueError):
             pass
-        # 回收底层子进程 transport(Proactor 需显式 close 才不泄漏)
+        # 统一回收底层 subprocess transport。它负责 stdin/stdout/stderr 三条管道,
+        # 跨平台关闭(不逐个调 stream.close——Unix 的 stdout 是 StreamReader,无 close 方法)。
+        # 显式 close 也避免事件循环关闭后 transport 才被 GC,刷 __del__ 泄漏告警。
         proc_transport = getattr(proc, "_transport", None)
         if proc_transport is not None:
             try:
