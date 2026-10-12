@@ -8,14 +8,15 @@
 
 ## 最近一次更新：2026-10-12
 
-### 当前进行中工作
+### state11（已验收通过）
 **state11：TUI 多行输入**（`docs/state11-multiline-input/`）
-- **开发完成：Input→PromptInput(TextArea)，Enter 发送 / Ctrl+Enter 换行；264 测试绿 + 组件行为实测过。**
+- **已验收完成**：264 测试绿。
 - 起因：真机验证暴露 Textual 单行 `Input` 无法粘多行 prompt。
-- **决策经翻转**：先试 Ctrl+Enter 发送 → 真机实测 Ctrl+Enter 在终端不可靠（TextArea 内部吞掉：既不发送也不换行）→ 翻转确认 **Enter 发送、Ctrl+Enter 换行**。
-- **关键发现**：`TextArea._on_key` 内部把 enter 直映射 `"\n"`，**声明式 BINDINGS 拦不住**（子类加 `("enter",...)` 绑定无效）。故用**子类 `PromptInput` 覆写 `_on_key`**：enter→post `Submitted`；ctrl+enter→`_replace_via_keyboard("\n")`；其余→`super()`。
-- 组件：`codepilot/ui/widgets/prompt_input.py`；App 增 `on_prompt_input_submitted`→`_submit` 统一入口；提示行 `Enter 发送 · Ctrl+Enter 换行`。
-- 遗留：真机人工项（Enter 发送手感、粘多行进对话）待你确认。
+- **定稿交互**：**Enter 发送 / Ctrl+J 换行**；输入框随内容自动长高(40%屏高内)、启动自动聚焦；多行可粘贴。
+- **换行键定稿过程（真机排查）**：先 B(Ctrl+Enter 发送)→翻转 A(Enter 发送)→`Ctrl/Shift/Alt+Enter` 换行在本机 Windows 终端**全被折叠成 enter(等于发送)**→最终 `ctrl+j`(LF 控制符)独立送达、可靠换行。移除多余换行键，`_NEWLINE_KEYS={"ctrl+j"}`。
+- **关键发现**：`TextArea._on_key` 内部把 enter 直映射 `"\n"`，**声明式 BINDINGS 拦不住** → 子类 `PromptInput` 覆写 `_on_key`。
+- **顺带修功能性 bug**：启动焦点落 RichLog、按键不达输入框 → `on_mount` 加 `prompt.focus()`。
+- 组件：`codepilot/ui/widgets/prompt_input.py`；`on_prompt_input_submitted`→`_submit` 统一入口。
 
 ### state10（已验收通过）
 **state10：Agent 停止判定增强**（`docs/state10-agent-stop-policy/`）
