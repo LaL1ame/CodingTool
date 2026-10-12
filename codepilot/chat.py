@@ -47,10 +47,16 @@ class ChatManager:
         """
         return self._msgs
 
-    async def send_message(self, content: str) -> AsyncIterator[Delta]:
-        self.history.append(Message(role="user", content=content))
-        self._record("user", content)
-        self._msgs.append({"role": "user", "content": content})
+    async def send_message(self, content: str, *, resume: bool = False) -> AsyncIterator[Delta]:
+        """发送一条 user 消息并驱动 agent 循环。
+
+        resume=True(state10 F2):续接上一轮达上限而暂停的循环,沿用同一持久
+        `_msgs`,不追加新 user 消息,直接续跑。用于 /continue。
+        """
+        if not resume:
+            self.history.append(Message(role="user", content=content))
+            self._record("user", content)
+            self._msgs.append({"role": "user", "content": content})
         ctx = self.build_context()
         full: list[str] = []
         started = time.time()

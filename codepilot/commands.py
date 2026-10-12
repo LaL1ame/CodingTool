@@ -33,4 +33,6 @@ def parse_command(text: str) -> tuple[str | None, str]:
         return ("edits", rest.strip())
     if first == "/compact":
         return ("compact", "")
+    if first == "/continue":
+        return ("continue", "")
     return (None, text)
