@@ -9,6 +9,14 @@
 ## 最近一次更新：2026-10-12
 
 ### 当前进行中工作
+**state11：TUI 多行输入**（`docs/state11-multiline-input/`）
+- **开发完成：Input→TextArea，Enter 换行 / Ctrl+Enter 发送；264 测试绿 + 无头挂载冒烟过。**
+- 起因：真机验证暴露 Textual 单行 `Input` 无法粘多行 prompt。
+- 决策：提交键 B（Ctrl+Enter 发送，Enter=换行，文本编辑器惯例）。
+- 关键：`TextArea.text` 读写（非 `.value`）、`.clear()`、无 placeholder/无内置提交 → 提示行 `#prompt-hint` + 自加 `action_submit`/`_submit` 统一发送入口。
+- 遗留：真机人工项（粘多行→Ctrl+Enter 进对话；单行 `/exit` 等）待你确认。
+
+### state10（已验收通过）
 **state10：Agent 停止判定增强**（`docs/state10-agent-stop-policy/`）
 - **处于：阶段六验收通过（264 测试绿）**。核心 A/B 真机验证完成；验收中发现并修复 state9 层1 契约缺陷（见下）。
 - **真机验收结论**：
