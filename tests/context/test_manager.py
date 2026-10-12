@@ -86,19 +86,30 @@ def test_manual_compact_respects_message_boundary():
 # —— T8: 层1 prep_tool_result ——
 
 def test_prep_tool_result_offloads_large():
+    """非自分页工具(read 以外,如 grep)的大输出 → 存盘成替身。"""
     msgs = [{"role": "user", "content": "hi"}]
     mgr, cm, _ = _fresh(msgs)
-    big = ToolResult(call_id="c", name="read", output="X" * 10000)  # 2500 token>100
+    big = ToolResult(call_id="c", name="grep", output="X" * 10000)  # 2500 token>100
     out = asyncio.run(mgr.prep_tool_result(big))
     assert out is not None
-    assert "read" in out.name
+    assert "grep" in out.name
     assert "已存盘" in (out.output or "")
+
+
+def test_prep_tool_result_exempts_read():
+    """read 豁免(state10 修正):自带分页,大输出必须完整回灌,不被存盘截断。"""
+    msgs = [{"role": "user", "content": "hi"}]
+    mgr, cm, _ = _fresh(msgs)
+    big = ToolResult(call_id="c", name="read", output="Y" * 10000)  # 2500 token>100
+    out = asyncio.run(mgr.prep_tool_result(big))
+    assert out.output == "Y" * 10000
+    assert "已存盘" not in (out.output or "")
 
 
 def test_prep_tool_result_keeps_small():
     msgs = [{"role": "user", "content": "hi"}]
     mgr, cm, _ = _fresh(msgs)
-    small = ToolResult(call_id="c", name="read", output="tiny")
+    small = ToolResult(call_id="c", name="grep", output="tiny")
     out = asyncio.run(mgr.prep_tool_result(small))
     assert out.output == "tiny"
 

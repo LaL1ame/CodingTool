@@ -71,8 +71,18 @@ class ContextManager:
         self.chat = chat
 
     # —— 层1:单工具结果(prep_tool_result,agent 每轮调用) ——
+    # read 豁免(state10 验收修正):read 是我方主动给出、且自带 offset/limit 分页 +
+    # READ_LIMIT 行内截断(truncated=True)的自分页工具 —— 它就是 read 的上下文边界机制。
+    # 层1存盘会对它造成「预览→按路径重读→再存盘」死循环,故豁免。层1只面向模型
+    # 无法分页的不透明大输出(如 run/grep 大块),避免在模型需要的当前内容上截断。
+    # 文件读多后的历史老化交给层2摘要(compactor)。
+    _SELF_PAGING_TOOLS = frozenset({"read"})
+
     async def prep_tool_result(self, result: "ToolResult") -> "ToolResult":
-        """层1单结果:> N 则存盘并返回替身(供 agent 回灌 ctx)。否则原样返回。"""
+        """层1单结果:除 read(自带分页,豁免)外,> N 存盘并返回替身;否则原样返回。"""
+        if result.name in self._SELF_PAGING_TOOLS:
+            self.estimator.add((result.output or ""), kind="code")
+            return result
         off = await self.offloader.offload(result, self.config.tool_threshold_n)
         if off is None:
             # 记录增量(估算口径)
