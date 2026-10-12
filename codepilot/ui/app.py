@@ -137,6 +137,15 @@ class CodePilotApp(App):
             else:
                 self.run_worker(self._cmd_compact(_log))
             return
+        if command == "continue":
+            # F2/F5:续接上一轮达上限而暂停的循环,沿用同一 _msgs 续跑
+            inp = self.query_one("#prompt", Input)
+            inp.value = ""
+            self._streaming = True
+            self._stream_start = time.time()
+            self.set_interval(1, self._tick)
+            self.run_worker(self._process_chat("", resume=True), exclusive=False)
+            return
         if command == "plan":
             self._set_axis(ToolAxis.PLAN, announce=True)
             if not rest:
@@ -221,7 +230,7 @@ class CodePilotApp(App):
             log.write("\n[dim]── 已完成手动压缩[/dim]")
         self._refresh_status()
 
-    async def _process_chat(self, text: str) -> None:
+    async def _process_chat(self, text: str, *, resume: bool = False) -> None:
         log = self.query_one("#chat", RichLog)
         inp = self.query_one("#prompt", Input)
         stream = self.query_one("#stream", Static)
@@ -232,13 +241,13 @@ class CodePilotApp(App):
 
         buf: list[str] = []
         try:
-            # 层2自动触发:send_message 前判断是否需压缩累积历史
-            if self._context_manager is not None:
+            # 层2自动触发:仅在真实新消息前判断(续接沿用历史,不重复压缩)
+            if not resume and self._context_manager is not None:
                 compacted = await self._context_manager.pre_request()
                 if compacted is not None:
                     log.write("\n[dim]── 上下文已压缩,早期消息被摘要替代[/dim]")
                     self._refresh_status()
-            async for d in self._chat.send_message(text):
+            async for d in self._chat.send_message(text, resume=resume):
                 if d.error:
                     stream.update("")
                     log.write(f"\n[bold red]❌ Error[/bold red]  {d.error}")
@@ -248,6 +257,26 @@ class CodePilotApp(App):
                     stream.update("")
                     log.write("\n[dim]── 已取消[/dim]")
                     return
+
+                if d.paused:
+                    # F2/F5 + N1:达上限/空转/未知工具是可续接暂停,非 error
+                    stream.update("")
+                    reason = d.pause_reason
+                    if reason == "limit":
+                        log.write(
+                            f"\n[dim]── 已达迭代上限(第 {d.resume_round} 轮),"
+                            f"输入 /continue 续跑(沿用当前上下文)[/dim]")
+                    elif reason == "stall":
+                        log.write("\n[dim]── 检测到持续空转,已暂停。输入 /continue 或换一个指令[/dim]")
+                    elif reason == "unknown_tool":
+                        log.write("\n[dim]── 连续调用未知工具,已暂停[/dim]")
+                    else:
+                        log.write("\n[dim]── 已暂停[/dim]")
+                    return
+
+                if d.stall_hint is not None:
+                    # F3:空转软提示(仍继续跑,非停)
+                    log.write(f"\n[dim]⚠ {d.stall_hint}[/dim]")
 
                 if d.round is not None:
                     self._status_round = f"第 {d.round}/{d.max_rounds} 轮"
