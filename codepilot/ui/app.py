@@ -95,7 +95,7 @@ class CodePilotApp(App):
         yield RichLog(id="chat", highlight=True, markup=True, wrap=True)
         yield Vertical(id="tools")      # 工具 gutter:持久追加
         yield Static("", id="stream")
-        yield Static("Enter 发送 · Shift/Ctrl+Enter 换行 · 支持多行提示词  (/exit /plan /do)", id="prompt-hint")
+        yield Static("Enter 发送 · Ctrl+J 或 Shift/Ctrl+Enter 换行 · 支持多行(可粘贴)  (/exit /plan /do)", id="prompt-hint")
         yield PromptInput(id="prompt", soft_wrap=True)  # soft_wrap:长行折行自适应;height:auto 随内容长高(见 theme.tcss)
         yield Footer()
         yield StatusBar()

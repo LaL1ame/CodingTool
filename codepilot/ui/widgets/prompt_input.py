@@ -13,9 +13,10 @@ from textual.events import Key
 from textual.message import Message
 from textual.widgets import TextArea
 
-# 换行触发键：Textual 对 combo enter 给出 key='ctrl+enter'/'alt+enter'/'shift+enter'。
-# 兼容不同终端对同序列的送达差异（如部分终端只把 Ctrl 送成 Shift）。
-_NEWLINE_KEYS = frozenset({"ctrl+enter", "alt+enter", "shift+enter"})
+# 换行触发键：Textual 对 combo enter 给出 key='ctrl+enter'/'alt+enter'/'shift+enter'，
+# ctrl+j    = LF 换行控制符（部分终端对 Enter 的修饰组合全折叠成 enter，但对控制字符仍独立送达）。
+# 多键并存以兼容不同终端的送达差异。
+_NEWLINE_KEYS = frozenset({"ctrl+enter", "alt+enter", "shift+enter", "ctrl+j"})
 
 
 class PromptInput(TextArea):
