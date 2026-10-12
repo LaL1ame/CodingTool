@@ -197,9 +197,14 @@ class TestAgentStopConditions:
         registry.register(_SlowTool("read"))
         rounds = [[Delta(tool_calls=[ToolCall(id=str(i), name="read", arguments={})])] for i in range(3)]
         provider = _MockProvider(rounds=rounds)
-        agent = Agent(provider, registry, workspace=None, max_rounds=3)
+        # state10 F2:达上限 → paused(reason=limit) 可续接,非 error。stall_enabled=False 隔离
+        # 机制:本测试只测「上限」路径,不测空转。
+        agent = Agent(provider, registry, workspace=None, max_rounds=3, stall_enabled=False)
         deltas = [d async for d in agent.run([])]
-        assert any(d.error and "迭代上限" in d.error for d in deltas)
+        paused = [d for d in deltas if d.paused]
+        assert len(paused) == 1
+        assert paused[0].pause_reason == "limit"
+        assert not any(d.error for d in deltas)
         assert len([d for d in deltas if d.tool_result]) == 3
 
     async def test_consecutive_unknown_tools(self):
@@ -209,7 +214,10 @@ class TestAgentStopConditions:
         ])
         agent = Agent(provider, ToolRegistry(), workspace=None, max_unknown=2)
         deltas = [d async for d in agent.run([])]
-        assert any(d.error and "未知工具" in d.error for d in deltas)
+        paused = [d for d in deltas if d.paused]
+        assert len(paused) == 1
+        assert paused[0].pause_reason == "unknown_tool"
+        assert not any(d.error for d in deltas)
 
     async def test_cancel_interrupts_tool(self):
         registry = ToolRegistry()
@@ -245,7 +253,10 @@ class TestAgentPlanMode:
             [Delta(tool_calls=[ToolCall(id="3", name="read", arguments={})])],
             [Delta(text="Done"), Delta(done=True)],
         ])
-        agent = Agent(provider, registry, workspace=None, refresh_every=2, max_rounds=10)
+        # stall_enabled=False:本测试意图是验证 plan 注入的 per-round 节奏,无文本连续 read
+        # 会触发空转检测而提前终止,隔离该机制。
+        agent = Agent(provider, registry, workspace=None, refresh_every=2, max_rounds=10,
+                      stall_enabled=False)
         agent.set_plan_mode(True)
         [d async for d in agent.run([])]
         systems = provider.systems

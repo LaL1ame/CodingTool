@@ -27,6 +27,10 @@ def test_do_with_message():
     assert parse_command("/do 继续执行") == ("do", "继续执行")
 
 
+def test_continue_alone():
+    assert parse_command("/continue") == ("continue", "")
+
+
 def test_plain_message_is_not_command():
     assert parse_command("帮我写个文件") == (None, "帮我写个文件")
 
