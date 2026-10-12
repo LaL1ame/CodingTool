@@ -13,7 +13,7 @@ import time
 
 from textual.app import App, ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Footer, Header, Input, RichLog, Static
+from textual.widgets import Footer, Header, RichLog, Static, TextArea
 
 from codepilot.agent import Agent
 from codepilot.chat import ChatManager
@@ -34,7 +34,8 @@ VERSION = "0.2.0"
 
 class CodePilotApp(App):
     BINDINGS = [("ctrl+c", "quit", "退出"), ("escape", "cancel_loop", "取消"),
-                ("f2", "cycle_release", "切换模式")]
+                ("f2", "cycle_release", "切换模式"),
+                ("ctrl+enter", "submit", "发送")]  # state11 多行输入:Enter=换行,Ctrl+Enter=发送
 
     CSS_PATH = "theme.tcss"
 
@@ -94,7 +95,8 @@ class CodePilotApp(App):
         yield RichLog(id="chat", highlight=True, markup=True, wrap=True)
         yield Vertical(id="tools")      # 工具 gutter:持久追加
         yield Static("", id="stream")
-        yield Input(placeholder="❯ Send a message...  (/exit /plan /do)", id="prompt")
+        yield Static("Ctrl+Enter 发送 · Enter 换行 · 支持多行提示词  (/exit /plan /do)", id="prompt-hint")
+        yield TextArea(id="prompt")
         yield Footer()
         yield StatusBar()
 
@@ -109,13 +111,21 @@ class CodePilotApp(App):
         ae_txt = " · 自动编辑 ON" if ae else ""
         self.query_one("#chat", RichLog).write(
             f"\n[dim]── 模式 → {policy.value}{ae_txt}[/dim]")
-        self.query_one("#prompt", Input).value = ""
+        self.query_one("#prompt", TextArea).clear()
 
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        text = event.value.strip()
-        if not text or not self._chat or self._streaming:
+    def action_submit(self) -> None:
+        """Ctrl+Enter(state11):读多行输入内容,清空,进入统一分发。Enter 由 TextArea 换行。"""
+        if self._streaming or self._chat is None:
             return
+        inp = self.query_one("#prompt", TextArea)
+        text = (inp.text or "").strip()
+        if not text:
+            return
+        inp.clear()
+        self._submit(text)
 
+    def _submit(self, text: str) -> None:
+        """命令解析 + 纯命令处理 / 对话分发。单一发送入口(当前仅 action_submit)。"""
         command, rest = parse_command(text)
 
         # —— 纯模式/开关命令:不进入聊天循环 ——
@@ -130,8 +140,6 @@ class CodePilotApp(App):
             return
         if command == "compact":
             _log = self.query_one("#chat", RichLog)
-            _inp = self.query_one("#prompt", Input)
-            _inp.value = ""
             if self._context_manager is None:
                 _log.write("\n[bold red]⚠ 上下文管理未启用[/bold red]")
             else:
@@ -139,8 +147,6 @@ class CodePilotApp(App):
             return
         if command == "continue":
             # F2/F5:续接上一轮达上限而暂停的循环,沿用同一 _msgs 续跑
-            inp = self.query_one("#prompt", Input)
-            inp.value = ""
             self._streaming = True
             self._stream_start = time.time()
             self.set_interval(1, self._tick)
@@ -157,10 +163,8 @@ class CodePilotApp(App):
                 return
             text = rest
 
-        inp = self.query_one("#prompt", Input)
         log = self.query_one("#chat", RichLog)
-
-        inp.value = ""
+        inp = self.query_one("#prompt", TextArea)
         inp.disabled = True
 
         log.write(f"\n[bold green]❯ You[/bold green]  {text}")
@@ -187,7 +191,7 @@ class CodePilotApp(App):
         label = "计划模式（只读工具）" if axis is ToolAxis.PLAN else "执行模式（全部工具）"
         if announce:
             self.query_one("#chat", RichLog).write(f"\n[dim]── 已切换：{label}[/dim]")
-        self.query_one("#prompt", Input).value = ""
+        self.query_one("#prompt", TextArea).clear()
 
     def _cmd_release(self, command: str, rest: str) -> None:
         if command == "mode":
@@ -201,7 +205,7 @@ class CodePilotApp(App):
         policy = ReleasePolicy(name)
         self._mode_state.set_release(policy)
         self._apply_modes()
-        self.query_one("#prompt", Input).value = ""
+        self.query_one("#prompt", TextArea).clear()
         self.query_one("#chat", RichLog).write(
             f"\n[dim]── 放行策略 → {name}{'（未命中自动放行）' if name == 'auto' else ''}[/dim]")
 
@@ -213,7 +217,7 @@ class CodePilotApp(App):
             self._mode_state.toggle_accept_edits()  # 无参 → 翻转
         on = self._mode_state.accept_edits
         self._apply_modes()
-        self.query_one("#prompt", Input).value = ""
+        self.query_one("#prompt", TextArea).clear()
         self.query_one("#chat", RichLog).write(
             f"\n[dim]── Accept Edits → {'ON(自动应用 write/edit)' if on else 'OFF'}[/dim]")
 
@@ -232,7 +236,7 @@ class CodePilotApp(App):
 
     async def _process_chat(self, text: str, *, resume: bool = False) -> None:
         log = self.query_one("#chat", RichLog)
-        inp = self.query_one("#prompt", Input)
+        inp = self.query_one("#prompt", TextArea)
         stream = self.query_one("#stream", Static)
         tools_container = self.query_one("#tools", Vertical)
         stream.update("")

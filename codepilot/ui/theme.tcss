@@ -44,8 +44,16 @@ ToolRow {
     color: #d0d0d8;
 }
 
-/* 用户输入 */
+/* 输入提示行 */
+#prompt-hint {
+    height: auto;
+    color: #7777a0;
+    padding: 0 2;
+}
+
+/* 用户输入（多行 TextArea,凭 Enter 可输入多行,Ctrl+Enter 发送） */
 #prompt {
+    height: 3;
     background: #111116;
     color: #e0e0e8;
     border: round $accent;
