@@ -29,7 +29,7 @@
 - [x] `store.cleanup_expired(session_dir, max_age_days=30)`：删除早于阈值的 `*.jsonl`（只删过期，幂等）。
 
 ## T8: main 接线 + config
-- [x] `main.py`：启动定位最近会话；`--resume`（默认接最近）/`--new`；启动执行 `cleanup_expired`。
+- [x] `main.py`：启动定位最近会话；`--resume`/`--new`（裸启动默认新开,仅续接才还原）；启动执行 `cleanup_expired`。
 - [x] `config.example.yaml`：新增 `session:` 段（`gap_hours`、`max_age_days`、`auto_resume`）。
 - [x] `config.py` 解析 `session:` 段并注入。
 

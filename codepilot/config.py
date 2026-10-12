@@ -153,11 +153,12 @@ def load_log_config(path: str | Path) -> LogConfig:
 class SessionConfig:
     """会话恢复(state12)运行时配置。
 
-    auto_resume: 启动无显式 --new/--continue/--resume 时,是否自动接最近会话。
+    auto_resume: 启动无显式 --continue/--resume/--new 时,是否自动接最近会话。
+                 默认 False:裸启动 = 新对话(对齐 Claude Code);要续接用 -c/--resume。
     gap_hours:   隔多久插时间跨度提醒(0=关闭)。
     max_age_days: 过期会话回收阈值(默认 30 天)。
     """
-    auto_resume: bool = True
+    auto_resume: bool = False
     gap_hours: float = 24.0
     max_age_days: int = 30
 
@@ -174,7 +175,7 @@ def load_session_config(path: str | Path) -> SessionConfig:
         return SessionConfig()
     entry = (raw or {}).get("session") or {}
     return SessionConfig(
-        auto_resume=bool(entry.get("auto_resume", True)),
+        auto_resume=bool(entry.get("auto_resume", False)),
         gap_hours=float(entry.get("gap_hours", 24.0)),
         max_age_days=int(entry.get("max_age_days", 30)),
     )

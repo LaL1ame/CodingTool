@@ -11,10 +11,13 @@ context/manager.compact_if_over),保持本模块纯、可独立单测。
 """
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 
 from codepilot.session import store
+
+logger = logging.getLogger("codepilot.session.restore")
 
 # 时间跨度提醒阈值默认(小时);为空/为 0 则关闭提醒(测试注入).
 _DEFAULT_GAP_HOURS = 24
@@ -73,12 +76,14 @@ def restore_chat(path: str | Path, *, gap_hours: float | None = None,
 
     # 1. dangling 截断
     trimmed = _truncate_dangling(segments)
+    n_cut = len(segments) - len(trimmed)
 
     # 2. 重建完整序列
     msgs = _build_messages(trimmed)
 
     # 3. 时间跨度提醒:超 gap_hours → 最前插 role=user 提醒(保持首末角色交替合法)
     gap = _DEFAULT_GAP_HOURS if gap_hours is None else gap_hours
+    gap_fired = False
     if gap > 0:
         last = _last_activity(trimmed)
         now = now if now is not None else time.time()
@@ -87,5 +92,8 @@ def restore_chat(path: str | Path, *, gap_hours: float | None = None,
             remind = (f"（距上次会话已过去约 {hours} 小时。以下为历史记录,"
                       f"请结合上文继续。）")
             msgs.insert(0, {"role": "user", "content": remind})
+            gap_fired = True
 
+    logger.info("restore %s: %d msgs (dangling_cut=%d, gap_reminder=%s)",
+                path.name, len(msgs), n_cut, gap_fired)
     return {"messages": msgs, "mode": loaded.get("mode"), "meta": loaded.get("meta")}

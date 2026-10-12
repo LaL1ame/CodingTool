@@ -36,6 +36,7 @@ permissions:
 
 # 会话恢复配置（可选；state12）
 session:
-  auto_resume: true           # 启动无显式 --continue/--resume/--new 时,自动接最近会话
+  auto_resume: false          # 默认=新会话；设 true 则裸启动自动接最近会话。
+                              # 显式 -c/--resume 始终接最近，不受此开关影响。
   gap_hours: 24               # 距上次会话超多少小时,恢复时插入时间跨度提醒(0=关闭)
   max_age_days: 30            # 更早的会话在启动时被自动清理

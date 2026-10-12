@@ -63,12 +63,17 @@ def _pick_session(cwd: Path, continue_: bool, resume: bool, new: bool,
     """选择要恢复的会话文件,返回 (path, loaded|None)。
 
     loaded=None 表示新开不复原。启动即执行过期清理(state12)。
-    无历史或显式 --new → 新开;否则按 continue/resume/auto_resume 接最近。
+    默认(auto_resume=False)=新开会话;仅 -c/--resume 或 config 开 auto_resume 才接最近。
     """
     from codepilot.session import store
-    store.cleanup_expired(store.session_dir(cwd))
+    import logging
+    log = logging.getLogger("codepilot")
+    n_cleaned = len(store.cleanup_expired(store.session_dir(cwd)))
+    if n_cleaned:
+        log.info("过期清理: 删除 %d 个会话文件", n_cleaned)
     sessions = store.list_sessions(cwd)
     if new or not sessions or not (continue_ or resume or auto_resume):
+        log.info("新开会话(无续接)")
         return store.new_session_path(cwd), None
     if resume and len(sessions) > 1:
         print("历史会话:")

@@ -19,7 +19,7 @@
 - [x] `cleanup_expired(session_dir, max_age_days=30)` 启动回收陈旧会话；只删过期、幂等。
 
 ## 接线
-- [x] `main.py` `--resume`（默认接最近会话）/`--new`；启动执行过期清理。
+- [x] `main.py` `--resume`/`--new`（裸启动默认新开;`-c`/`--resume`/`auto_resume` 才接最近）；启动执行过期清理。
 - [x] `config`：`session:` 段（`gap_hours`/`max_age_days`/`auto_resume`）。
 
 ## 回归与验收
