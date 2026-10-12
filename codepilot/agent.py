@@ -13,6 +13,66 @@ from codepilot.providers import BaseProvider
 from codepilot.tools.registry import ToolRegistry
 
 
+class _StallDetector:
+    """空转软守卫(F3):lex 级检测「重复调用同一工具+参数且无文本进展」。
+
+    基于工具名 + 参数 repr 的确定性指纹,不依赖语义判断。纯内存、O(回合)。
+    设计:
+      record()   本轮评估;有工具调用且无文本进展时,若最近窗口内同指纹出现
+                 >= repeat_k 次 → 返回 True(触发软 stall_hint,仍继续跑)。
+      should_stop() 持续重复(窗口内重复指纹占比高) → 硬停 paused(stall)。
+    有文本进展(had_text=True)本轮不判空转 —— 慢但前进不误伤(N1.2)。
+    """
+
+    def __init__(self, *, repeat_k: int, window: int) -> None:
+        self._repeat_k = max(1, repeat_k)
+        self._window = max(1, window)
+        self._recent: list[str] = []       # 最近窗口内的指纹序列
+        self._stall_repeated = False       # 已被"硬停"判定(连续空转)
+
+    # —— 指纹(F3.4 lex 级)——
+    @staticmethod
+    def _fingerprint(tc: ToolCall) -> str:
+        # 确定性:工具名 + 参数的稳定 repr。dict 顺序无关 → 排序后 repr。
+        arg = tc.arguments
+        if isinstance(arg, dict):
+            sig = repr(sorted(arg.items(), key=lambda kv: str(kv[0])))
+        else:
+            sig = repr(arg)
+        return f"{tc.name}|{hash(sig)}"
+
+    def record(self, tool_calls: list["ToolCall"], had_text: bool) -> bool:
+        """本轮评估。返回 True=触发软 stall_hint(继续跑,非停)。"""
+        if not tool_calls or had_text:
+            # 无工具调用(将 done)或有文本进展 → 有前进,不判空转
+            self._reset_progress()
+            return False
+        fps = [self._fingerprint(tc) for tc in tool_calls]
+        self._recent.append(tuple(fps))
+        # 窗口内:同指纹(整轮调用集合)出现次数
+        dup = sum(1 for e in self._recent if e == tuple(fps))
+        return dup >= self._repeat_k
+
+    def should_stop(self) -> bool:
+        """持续空转(窗口内同一指纹占比超高)→ 硬停。"""
+        if not self._recent:
+            return False
+        if self._stall_repeated:
+            return True
+        last = self._recent[-1]
+        # 最近窗口内,出现次数 >= repeat_k 且超过半数 → 持续空转
+        count = sum(1 for e in self._recent[-self._window:] if e == last)
+        if count >= self._repeat_k and count >= (self._window + 1) // 2:
+            self._stall_repeated = True
+            return True
+        return False
+
+    def _reset_progress(self) -> None:
+        # 有前进:清空窗口,重新计时
+        self._recent.clear()
+        self._stall_repeated = False
+
+
 class Agent:
     def __init__(
         self,
@@ -20,12 +80,16 @@ class Agent:
         registry: ToolRegistry,
         workspace: Path,
         timeout: float = 120.0,
-        max_rounds: int = 10,
+        max_rounds: int = 18,
         max_unknown: int = 2,
         env: EnvContext | None = None,
         refresh_every: int = 3,
         permission: PermissionManager | None = None,
         context_manager=None,
+        stall_enabled: bool = True,
+        stall_repeat_k: int = 2,
+        stall_window: int = 3,
+        stall_msg: str = "检测到重复调用且无进展,建议更换工具或参数,或重新明确目标。",
     ) -> None:
         self._provider = provider
         self._registry = registry
@@ -38,6 +102,10 @@ class Agent:
         self._permission = permission
         self._context_manager = context_manager  # 可选注入(层1压缩,state9)
         self._plan_mode = False
+        self._stall_enabled = stall_enabled
+        self._stall_msg = stall_msg
+        self._stall = _StallDetector(repeat_k=stall_repeat_k, window=stall_window) if (
+            stall_enabled) else None
         self._cancel_event = asyncio.Event()
         self._tool_tasks: set[asyncio.Task] = set()
         self._logger = logging.getLogger("codepilot.agent")
@@ -126,17 +194,35 @@ class Agent:
             # —— 连续未知工具检测（安全网）——
             names = [tc.name for tc in tool_calls]
             self._logger.info("round %d tools: %s", round_num, ", ".join(names))
+            stall_hint = False
             if any(self._registry.get(tc.name) is None for tc in tool_calls):
                 consecutive_unknown += 1
             else:
                 consecutive_unknown = 0
+                # —— state10: 空转软守卫评估本轮(F3,仅当无未知工具) ——
+                if self._stall is not None:
+                    stall_hint = self._stall.record(
+                        tool_calls, had_text=bool("".join(text_parts)))
 
             if consecutive_unknown >= self._max_unknown:
                 self._logger.warning(
                     "round %d stop: %d consecutive unknown tools (%s)",
                     round_num, self._max_unknown, ", ".join(names),
                 )
-                yield Delta(error=f"连续调用未知工具（{self._max_unknown} 次），已停止")
+                yield Delta(paused=True, pause_reason="unknown_tool",
+                            max_rounds=self._max_rounds,
+                            error=None)  # N1:非 error,友好提示由 UI 呈现
+                return
+
+            # —— state10: 空转软提示(仍继续跑)→ 持续空转则硬停 ——
+            if stall_hint:
+                self._logger.warning("round %d stall-hint: repeated no-progress", round_num)
+                yield Delta(stall_hint=self._stall_msg, round=round_num,
+                            max_rounds=self._max_rounds)
+            if self._stall is not None and self._stall.should_stop():
+                self._logger.warning("round %d stall-stop: persistent repetition", round_num)
+                yield Delta(paused=True, pause_reason="stall",
+                            resume_round=round_num, max_rounds=self._max_rounds)
                 return
 
             # —— 有工具调用 → 回灌助手消息 → 执行 → 回灌结果 → 下一轮 ——
@@ -159,7 +245,9 @@ class Agent:
                 return
 
         self._logger.warning("stop: iteration limit %d reached", self._max_rounds)
-        yield Delta(error=f"达到迭代上限（{self._max_rounds} 轮），已停止")
+        # F2: 达上限是可续接检查点,非 error —— 调用方可沿用同一 _msgs 续跑。
+        yield Delta(paused=True, pause_reason="limit",
+                    resume_round=self._max_rounds, max_rounds=self._max_rounds)
 
     def _is_side_effect(self, tc: ToolCall) -> bool:
         tool = self._registry.get(tc.name)
