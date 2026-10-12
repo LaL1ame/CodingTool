@@ -8,6 +8,29 @@
 
 ## 最近一次更新：2026-10-12
 
+### state12（开发完成，待真机验收）
+**state12：会话恢复韧性**（`docs/state12-session-restore/spec.md`）
+- **状态：T1-T9 全部完成，274 测试绿（264 既有 + 10 新增），待人工真机验收（阶段六）**。
+- 目标：让「中断→重启接着用」真正成立。写回(工具调用持久化)→恢复(dangling截断/token压一次/时间提醒)→清理(30天过期回收)。
+- **已落地**：
+  1. ID `YYYYMMDD-HHMMSS-xxxx`（本地时间+4位hex防同秒）→ `store.new_session_path`；列表按文件名降序。
+  2. JSONL 新增 `assistant`(带tool_calls) + `tool_result` 行；`chat.py` 在工具结果回灌处补写 → 跨重启工具上下文可还原。
+  3. `session/restore.py` 新增 `restore_chat` 编排：dangling 截断(无对应结果的tool_call从该行截)+ gap_hours 时间提醒(最前插role=user)；旧文件(仅meta/message/mode)向后兼容。
+  4. `store.summarize` 扫 JSONL 现算 id/title/message_count/last_ts，不维护 meta 文件。
+  5. `store.cleanup_expired(max_age_days=30)` 只删过期、幂等。
+  6. `context/manager.compact_if_over()` 单发压缩(复用 _do_compact)。
+  7. `main.py --resume(默认auto_resume)/--new` + 启动过期清理 + `seed_msgs` 回灌 ChatManager；app.on_mount attach 后 token 超限压一次。
+- **设计取舍记录**：token「先压一次」落在 `compact_if_over`(app.on_mount attach 后)，而非 restore_chat 内——restore 保纯可单测，压缩留在 context 层(chat 挂载后才可压)。dangling/时间提醒在 restore。
+- 文件：`session/store.py`,`session/restore.py`(新),`chat.py`,`context/manager.py`,`main.py`,`ui/app.py`,`config.py`,`config.example.yaml`,`tests/test_restore.py`(新)。
+- 待做：**真机验收**——带工具多轮 → 中断 → 重启 `--resume` → 上下文完整还原/dangling截断/无崩溃。state13(指令+自动记忆)见下。
+
+### state13（规划 outline，未开始）
+**state13：项目指令 + 自动记忆 + 注入**（下一阶段，spec 待编）
+- 三层指令文件(`.mewcode/` 项目根 / `.mewcode/` 子目录 / `~/.mewcode/`)手写 Markdown，按优先级拼接 + `@include`(限深/visited 防环/防逃逸)。
+- 四类自动笔记(用户偏好/纠正反馈/项目知识/参考资料)：每轮 Agent Loop 自然停(done,无工具调用)后**异步**调 LLM 更新，去重交 LLM；用户级 `~/.codepilot/memory/` 与项目级分开存；索引 ≤200 行/25KB 注入 prompt。
+- 记忆注入点：`prompt/builder.py` 分层 system prompt 加 volatile 记忆块；大小经 context estimator 控。
+- 明确不做：向量库/RAG/团队记忆同步。
+
 ### state11（已验收通过）
 **state11：TUI 多行输入**（`docs/state11-multiline-input/`）
 - **已验收完成**：264 测试绿。
