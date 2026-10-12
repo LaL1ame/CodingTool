@@ -10,7 +10,15 @@
 
 ### 当前进行中工作
 **state10：Agent 停止判定增强**（`docs/state10-agent-stop-policy/`）
-- **处于：开发完成（263 测试绿）→ 待人工验收（阶段六）**。
+- **处于：开发完成 + 真机验收过半（264 测试绿）**。验收中发现并修复一个 state9 层1 契约缺陷，见下方「验收修复」。
+
+**验收修复：read 豁免层1存盘**（2026-10-12）
+- 现象：验收「读所有 py 并总结」时，read 输出总被截成预览，模型无法完整读取。
+- 根因：config.yaml 残留 state9 验收用的 `tool_threshold_n: 250`（正文注释本就写明「正式可删」），把每个真实 read 结果都压到 200 字符预览；即使回默认 `1000`，核心源文件(agent/config/protocols 等 >1000 tok) 仍会中招。
+- 更深的契约缺口：层1存盘对 `read` 是「预览 → 按路径重读 → 再存盘」**死循环**（重读 offload 文件又 > 阈值再存盘）。
+- 修复（已批准方案）：`read`（自带 offset/limit 分页 + READ_LIMIT 行内截断 = 自身上下文边界机制）豁免层1存盘；层1只面向模型无法分页的不透明大输出(run/grep 大块)；文件读多后的历史老化交给层2摘要。
+- 落地：`codepilot/context/manager.py` 增加 `_SELF_PAGING_TOOLS={"read"}`；回归测试改 `test_prep_tool_result_offloads_large` 用 grep、新增 `test_prep_tool_result_exempts_read`。`config.yaml`(gitignored) 删除 `context:` 残留段回默认。
+- 真机验证：A) 读 tools/*.py+commands 全量回灌、正常 done ✓；B) max_rounds=2 达上限→`paused(limit)`→同 `_msgs` resume→DONE 续跑完成 ✓。
 - 目标：Agent 停止判定从「数轮数 + 全当 error」改为「进展感知 + 区别分类 + 可续接」。
 - 方案（参考 Claude Code 机制对齐）：
   - F1: max_rounds 默认 10→18（state9 保证不爆窗口）。
