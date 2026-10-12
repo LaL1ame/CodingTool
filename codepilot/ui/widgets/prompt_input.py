@@ -2,9 +2,9 @@
 
 TextArea 在内部 `_on_key` 把 enter 直接映射为插换行（声明式 BINDINGS 拦不住）。
 这里翻转为用户偏好：
-  enter     → 触发 Submitted 消息（App 统一分发送消息）
-  ctrl+enter、alt+enter、shift+enter → 插入换行（多终端兼容：部分 Windows
-  终端不把 Ctrl+Enter 作为独立键送出，落在 Shift/Alt 上更可靠）
+  enter     → 触发 Submitted 消息（App 统一发送）
+  ctrl+j    → 插入换行（LF 控制符；实机验证本机 Windows 终端把 Enter 的修饰组合
+              全折叠成 enter，唯独 ctrl+j 这类控制字符独立送达）
 其余按键（可打印/退格/方向等）走基类编辑语义。
 """
 from __future__ import annotations
@@ -13,14 +13,13 @@ from textual.events import Key
 from textual.message import Message
 from textual.widgets import TextArea
 
-# 换行触发键：Textual 对 combo enter 给出 key='ctrl+enter'/'alt+enter'/'shift+enter'，
-# ctrl+j    = LF 换行控制符（部分终端对 Enter 的修饰组合全折叠成 enter，但对控制字符仍独立送达）。
-# 多键并存以兼容不同终端的送达差异。
-_NEWLINE_KEYS = frozenset({"ctrl+enter", "alt+enter", "shift+enter", "ctrl+j"})
+# 换行键：仅 ctrl+j（LF 控制符）。此前加入的 ctrl/alt/shift+enter 在本机终端全被折叠成
+# enter(等于发送)，已按实机结论移除，避免「想换行却发出去了」。
+_NEWLINE_KEYS = frozenset({"ctrl+j"})
 
 
 class PromptInput(TextArea):
-    """Enter=发送、Ctrl/Alt/Shift+Enter=换行的多行输入框。"""
+    """Enter=发送、Ctrl+J=换行的多行输入框。"""
 
     class Submitted(Message):
         """用户按 enter 确认发送。App 据此读取文本并调 _submit 分发。"""

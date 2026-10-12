@@ -25,6 +25,7 @@
 - [ ] 输入框 3 行渲染、超长内部滚动正常。
 
 ## 备注
-- **决策经翻转**：先 B（Ctrl+Enter 发送）→ 真机实测 Ctrl+Enter 在终端不可靠（TextArea 内部吞掉）→ 翻转确认 **Enter 发送、Ctrl+Enter 换行**。
-- 关键技术点：`TextArea._on_key` 内部把 enter 直映射换行，声明式 BINDINGS 拦不住 → 用子类覆写 `_on_key`。
+- **换行键最终定为 Ctrl+J**：真机逐步排查——Enter 发送成立；Ctrl/Shift/Alt+Enter 在本机 Windows 终端全被折叠成 enter(等于发送)，被判不可用；唯有 `ctrl+j`（LF 控制符）独立送达、可靠换行。已按实机结论把多余换行键从 `_NEWLINE_KEYS` 移除，只留 ctrl+j。
+- **跳过 Enter 但能多行的另一条路**：多行**粘贴**直接带换行进输入框（不走 Enter），自动长高后 Enter 发送。
+- **关键技术点**：`TextArea._on_key` 内部把 enter 直映射换行，声明式 BINDINGS 拦不住 → 用子类覆写 `_on_key`。
 - 此 state 仅 UI 层，不动 agent/context 逻辑；264 单测全部无关且全绿。
