@@ -84,6 +84,7 @@ class CodePilotApp(App):
         log.write(f"[bold cyan]{CAT}[/bold cyan]\n")
         log.write(f"[bold]CodePilot[/bold] v{VERSION}  |  {cwd}\n")
         log.write(f"[dim]{cfg.name} · {cfg.model}  ({proto}) — Ready[/dim]\n")
+        self._replay_history(log)  # state12: 恢复会话时把上一段对话画回屏(可回滚,对齐 Claude Code)
 
         self._apply_modes()  # 把构造传入的初始 release 同步到后端
         self.query_one("#prompt", TextArea).focus()  # 启动即把输入焦点交给 prompt(否则落在 RichLog)
@@ -94,6 +95,24 @@ class CodePilotApp(App):
         if self._session_file:
             from codepilot.session import store
             store.append_mode(self._session_file, self._mode_state.snapshot())
+
+    def _replay_history(self, log: RichLog) -> None:
+        """state12:恢复会话时,把上一段对话整段画回屏幕,可往上回滚。
+
+        只画 user/assistant 文本轮(与 _process_chat 新消息同款样式);
+        全新会话(_history 为空)时不动。工具轮轨迹不回画(对齐「看到对话」的 MVP)。
+        """
+        if not self._history:
+            return
+        log.write("\n")
+        for m in self._history:
+            role = getattr(m, "role", None)
+            content = str(getattr(m, "content", "") or "")
+            if role == "user":
+                log.write(f"[bold green]❯ You[/bold green]  {content}")
+            elif role == "assistant":
+                log.write("\n" + content)
+        log.write("\n[dim]── 已恢复上一会话,上方为历史对话 ──[/dim]")
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)

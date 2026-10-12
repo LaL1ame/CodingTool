@@ -21,6 +21,7 @@
   6. `context/manager.compact_if_over()` 单发压缩(复用 _do_compact)。
   7. `main.py --resume(默认auto_resume)/--new` + 启动过期清理 + `seed_msgs` 回灌 ChatManager；app.on_mount attach 后 token 超限压一次。
 - **设计取舍记录**：token「先压一次」落在 `compact_if_over`(app.on_mount attach 后)，而非 restore_chat 内——restore 保纯可单测，压缩留在 context 层(chat 挂载后才可压)。dangling/时间提醒在 restore。
+- **历史回放 UX（用户要求，对齐 Claude Code）**：`app.on_mount` 调 `_replay_history` 把恢复的上段对话整段画回 RichLog、可上滚；样式同新消息；`--new`/无历史时不画。让「只有记忆看不到对话」的缺口补上——恢复即见对话。
 - 文件：`session/store.py`,`session/restore.py`(新),`chat.py`,`context/manager.py`,`main.py`,`ui/app.py`,`config.py`,`config.example.yaml`,`tests/test_restore.py`(新)。
 - 待做：**真机验收**——带工具多轮 → 中断 → 重启 `--resume` → 上下文完整还原/dangling截断/无崩溃。state13(指令+自动记忆)见下。
 
