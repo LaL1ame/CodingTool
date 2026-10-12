@@ -51,6 +51,11 @@ class Delta:
     cancelled: bool = False
     done: bool = False
     error: str | None = None
+    # —— state10:目标暂停(可续接) / 空转提示 ——
+    paused: bool = False            # F2:达上限或持续空转,目标暂停(可续接,非 error)
+    pause_reason: str | None = None  # "limit" | "stall" | "unknown_tool"
+    stall_hint: str | None = None    # F3:空转软提示(非 None 即命中;此时仍在跑,非停)
+    resume_round: int | None = None  # F2:已达轮数(供"/continue 续跑"提示)
 
 
 class BaseProtocol(ABC):
