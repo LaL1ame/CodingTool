@@ -10,11 +10,12 @@
 
 ### 当前进行中工作
 **state11：TUI 多行输入**（`docs/state11-multiline-input/`）
-- **开发完成：Input→TextArea，Enter 换行 / Ctrl+Enter 发送；264 测试绿 + 无头挂载冒烟过。**
+- **开发完成：Input→PromptInput(TextArea)，Enter 发送 / Ctrl+Enter 换行；264 测试绿 + 组件行为实测过。**
 - 起因：真机验证暴露 Textual 单行 `Input` 无法粘多行 prompt。
-- 决策：提交键 B（Ctrl+Enter 发送，Enter=换行，文本编辑器惯例）。
-- 关键：`TextArea.text` 读写（非 `.value`）、`.clear()`、无 placeholder/无内置提交 → 提示行 `#prompt-hint` + 自加 `action_submit`/`_submit` 统一发送入口。
-- 遗留：真机人工项（粘多行→Ctrl+Enter 进对话；单行 `/exit` 等）待你确认。
+- **决策经翻转**：先试 Ctrl+Enter 发送 → 真机实测 Ctrl+Enter 在终端不可靠（TextArea 内部吞掉：既不发送也不换行）→ 翻转确认 **Enter 发送、Ctrl+Enter 换行**。
+- **关键发现**：`TextArea._on_key` 内部把 enter 直映射 `"\n"`，**声明式 BINDINGS 拦不住**（子类加 `("enter",...)` 绑定无效）。故用**子类 `PromptInput` 覆写 `_on_key`**：enter→post `Submitted`；ctrl+enter→`_replace_via_keyboard("\n")`；其余→`super()`。
+- 组件：`codepilot/ui/widgets/prompt_input.py`；App 增 `on_prompt_input_submitted`→`_submit` 统一入口；提示行 `Enter 发送 · Ctrl+Enter 换行`。
+- 遗留：真机人工项（Enter 发送手感、粘多行进对话）待你确认。
 
 ### state10（已验收通过）
 **state10：Agent 停止判定增强**（`docs/state10-agent-stop-policy/`）
