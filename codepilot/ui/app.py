@@ -40,7 +40,8 @@ class CodePilotApp(App):
 
     def __init__(self, agent: Agent, release: str = "manual",
              history: list | None = None, session_file: str | None = None,
-             initial_modes: dict | None = None, context_manager=None) -> None:
+             initial_modes: dict | None = None, context_manager=None,
+             seed_msgs: list | None = None) -> None:
         super().__init__()
         self._agent = agent
         self._context_manager = context_manager
@@ -48,6 +49,7 @@ class CodePilotApp(App):
         if initial_modes:
             self._mode_state.restore(initial_modes)
         self._history = history
+        self._seed_msgs = seed_msgs   # state12: 恢复回灌的完整 LLM 序列(含工具调用)
         self._session_file = session_file
         self._chat: ChatManager | None = None
         self._streaming = False
@@ -60,11 +62,14 @@ class CodePilotApp(App):
 
     def on_mount(self) -> None:
         self._chat = ChatManager(self._agent, history=self._history,
-                                 session_file=self._session_file)
+                                 session_file=self._session_file,
+                                 msgs=self._seed_msgs)
         # 注入上下文管理器:绑定 chat + 注入 agent(层1拦截/usage锚点)
         if self._context_manager is not None:
             self._context_manager.attach_chat(self._chat)
             self._agent._context_manager = self._context_manager
+            # state12:恢复回灌的完整序列超预算 → 先压一次,防重启恢复爆窗
+            self.run_worker(self._context_manager.compact_if_over())
 
         cwd = os.getcwd()
         if len(cwd) > 50:

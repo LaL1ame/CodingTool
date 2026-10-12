@@ -11,6 +11,7 @@ from codepilot.chat import Message
 from codepilot.config import (
     ConfigError, load_agent_config, load_config, load_context_config,
     load_log_config, load_mcp_config, load_permissions_config,
+    load_session_config,
 )
 from codepilot.context import ContextManager
 from codepilot.logging_setup import setup_logging
@@ -52,15 +53,23 @@ def _parse_args() -> argparse.Namespace:
                         help="继续最近一次会话")
     parser.add_argument("-r", "--resume", action="store_true",
                         help="列出历史会话并选择一条恢复")
+    parser.add_argument("--new", action="store_true",
+                        help="强制新开会话,不复原(覆盖 auto_resume)")
     return parser.parse_args()
 
 
-def _pick_session(cwd: Path, continue_: bool, resume: bool) -> tuple[Path, dict]:
-    """选择要恢复的会话文件,返回 (path, loaded)。无历史则新建。"""
+def _pick_session(cwd: Path, continue_: bool, resume: bool, new: bool,
+                  auto_resume: bool) -> tuple[Path, dict | None]:
+    """选择要恢复的会话文件,返回 (path, loaded|None)。
+
+    loaded=None 表示新开不复原。启动即执行过期清理(state12)。
+    无历史或显式 --new → 新开;否则按 continue/resume/auto_resume 接最近。
+    """
     from codepilot.session import store
+    store.cleanup_expired(store.session_dir(cwd))
     sessions = store.list_sessions(cwd)
-    if not (continue_ or resume) or not sessions:
-        return store.new_session_path(cwd), {}
+    if new or not sessions or not (continue_ or resume or auto_resume):
+        return store.new_session_path(cwd), None
     if resume and len(sessions) > 1:
         print("历史会话:")
         for i, p in enumerate(sessions[:10]):
@@ -75,7 +84,7 @@ def _pick_session(cwd: Path, continue_: bool, resume: bool) -> tuple[Path, dict]
         except (ValueError, EOFError, KeyboardInterrupt):
             path = sessions[0]
     else:
-        path = sessions[0]  # -c 或单条:续最新
+        path = sessions[0]  # -c / auto_resume / 单条:续最新
     return path, store.load_session(path)
 
 
@@ -151,11 +160,19 @@ def main() -> None:
                   env=env, refresh_every=agent_config.prompt_refresh_every,
                   permission=permission, context_manager=context_manager)
 
-    # —— 会话 resume：-c 续最近 / -r 列表选择,恢复消息 + 模式快照 ——
+    # —— 会话 resume(state12)：-c 续最近 / -r 列表选择 / --new 强制新开;
+    #    默认按 session.auto_resume 自动接最近。恢复走 restore_chat(截断/提醒),
+    #    完整 LLM 序列作 seed_msgs 回灌 ChatManager,工具上下文跨重启保留 ——
     args = _parse_args()
-    session_path, loaded = _pick_session(workspace, args.continue_, args.resume)
-    history = [Message(role=m["role"], content=m["content"],
-                       duration=m.get("duration")) for m in loaded.get("messages", [])
+    session_cfg = load_session_config(path)
+    session_path, loaded = _pick_session(workspace, args.continue_, args.resume,
+                                         args.new, session_cfg.auto_resume)
+    restored = {"messages": [], "mode": None}
+    if loaded is not None:
+        from codepilot.session import restore
+        restored = restore.restore_chat(session_path, gap_hours=session_cfg.gap_hours)
+    history = [Message(role=m.get("role"), content=str(m.get("content") or ""),
+                       duration=None) for m in restored.get("messages", [])
                if m.get("role") in ("user", "assistant")]
 
     from codepilot.session import store
@@ -163,8 +180,10 @@ def main() -> None:
     store.project_index_dir(workspace).mkdir(exist_ok=True)
 
     app = CodePilotApp(agent, release=startup_release, history=history,
-                       session_file=str(session_path), initial_modes=loaded.get("mode"),
-                       context_manager=context_manager)
+                       session_file=str(session_path),
+                       initial_modes=loaded.get("mode") if loaded else None,
+                       context_manager=context_manager,
+                       seed_msgs=restored.get("messages"))
 
     # —— MCP:启动时连接并注册工具。必须与 App 同一事件循环——
     # app.run() 内部会自开一个 loop;若先用另一段 asyncio.run 连接 stdio/http

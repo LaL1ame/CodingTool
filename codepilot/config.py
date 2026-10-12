@@ -150,6 +150,37 @@ def load_log_config(path: str | Path) -> LogConfig:
 
 
 @dataclass
+class SessionConfig:
+    """会话恢复(state12)运行时配置。
+
+    auto_resume: 启动无显式 --new/--continue/--resume 时,是否自动接最近会话。
+    gap_hours:   隔多久插时间跨度提醒(0=关闭)。
+    max_age_days: 过期会话回收阈值(默认 30 天)。
+    """
+    auto_resume: bool = True
+    gap_hours: float = 24.0
+    max_age_days: int = 30
+
+
+def load_session_config(path: str | Path) -> SessionConfig:
+    """读取可选 session: 段。文件缺失或无该段时用默认值。"""
+    path = Path(path)
+    if not path.exists():
+        return SessionConfig()
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+    except yaml.YAMLError:
+        return SessionConfig()
+    entry = (raw or {}).get("session") or {}
+    return SessionConfig(
+        auto_resume=bool(entry.get("auto_resume", True)),
+        gap_hours=float(entry.get("gap_hours", 24.0)),
+        max_age_days=int(entry.get("max_age_days", 30)),
+    )
+
+
+@dataclass
 class McpServerSpec:
     """一条 MCP server 声明(合并两层 config 后)。
 

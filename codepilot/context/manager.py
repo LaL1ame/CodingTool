@@ -106,6 +106,14 @@ class ContextManager:
             return None
         return await self._do_compact(manual=False)
 
+    async def compact_if_over(self) -> CompactResult | None:
+        """state12:恢复/attach 后「先压一次」入口 —— 超预算才压一次,否则不动。
+
+        复用既有自动压缩判定(_maybe_compact_auto),不引入新压缩算法。
+        供会话恢复在 ChatManager._msgs 重建后调用,防重启恢复超窗爆掉。
+        """
+        return await self._maybe_compact_auto()
+
     async def compact_manual(self) -> CompactResult | None:
         """F6.1 手动触发(manual_margin 更小)。"""
         # 手动压缩条件:未熔断
