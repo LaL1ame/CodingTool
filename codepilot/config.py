@@ -35,9 +35,14 @@ class ProviderConfig:
 @dataclass
 class AgentConfig:
     """Agent 循环的运行时配置。"""
-    max_rounds: int = 10      # 迭代上限（安全网）
+    max_rounds: int = 18      # 迭代上限(可续接检查点,state10;config 可覆盖)
     max_unknown: int = 2      # 连续未知工具阈值
     prompt_refresh_every: int = 3  # plan 模式指令每 N 轮精简重复一次（F6）
+    # —— state10:空转检测参数(N4)——
+    stall_enabled: bool = True     # 是否启用空转检测(F3)
+    stall_repeat_k: int = 2        # 最近窗口内同签名 ≥2 记重复(F3.1)
+    stall_window: int = 3          # 检测窗口轮数(F3.1)
+    stall_msg: str = "检测到重复调用且无进展,建议更换工具或参数,或重新明确目标。"
 
 
 @dataclass
@@ -98,9 +103,13 @@ def load_agent_config(path: str | Path) -> AgentConfig:
         return AgentConfig()
     entry = (raw or {}).get("agent") or {}
     return AgentConfig(
-        max_rounds=int(entry.get("max_rounds", 10)),
+        max_rounds=int(entry.get("max_rounds", 18)),
         max_unknown=int(entry.get("max_unknown", 2)),
         prompt_refresh_every=int(entry.get("prompt_refresh_every", 3)),
+        stall_enabled=bool(entry.get("stall_enabled", True)),
+        stall_repeat_k=int(entry.get("stall_repeat_k", 2)),
+        stall_window=int(entry.get("stall_window", 3)),
+        stall_msg=str(entry.get("stall_msg", "检测到重复调用且无进展,建议更换工具或参数,或重新明确目标。")),
     )
 
 
