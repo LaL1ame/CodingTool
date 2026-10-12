@@ -6,11 +6,29 @@
 
 ---
 
-## 最近一次更新：2026-10-11
+## 最近一次更新：2026-10-12
 
 ### 当前进行中工作
+**state10：Agent 停止判定增强**（`docs/state10-agent-stop-policy/`）
+- **处于：开发完成（263 测试绿）→ 待人工验收（阶段六）**。
+- 目标：Agent 停止判定从「数轮数 + 全当 error」改为「进展感知 + 区别分类 + 可续接」。
+- 方案（参考 Claude Code 机制对齐）：
+  - F1: max_rounds 默认 10→18（state9 保证不爆窗口）。
+  - F2: 达上限 = `paused(reason=limit)` 可续接检查点（非 error），同一持久 `_msgs` 续跑。
+  - F3: 空转「软守卫」`_StallDetector`——lex 级(名+参数hash)重复 + 无文本进展 → stall_hint（提示换策略，仍跑）→ 持续才 paused(stall)。
+  - F4: 停止 reason 结构化 done/limit/stall/unknown_tool/cancelled/error。
+  - F5: /continue 命令续接。
+- 8 任务全实现：T1 Delta 字段→T2 AgentConfig→T3 StallDetector→T4 停止判定重构→T5 /continue→T6 续接→T7 UI→T8 测试。
+- **测试设计要点**：limit / unknown_tool / plan-injection 三测试各自 `stall_enabled=False` 隔离机制（三个停止阀正交）；stall 语义专测放 test_agent_resume.py::TestStallDetection。
+- 提交：7 个独立 Conventional Commit（docs→T1→…→T8）。
+- 待做：人工验收（阶段六），验 /continue 续接、空转软提示、达上限 paused。
+
+### 前一 state（已完成开发）
 **state9：上下文管理 + Token 优化**（`docs/state9-context-management/`）
-- **处于：开发完成（11 任务全部实现，256 测试绿）→ 等待人工验收（阶段六）**。
+- 开发完成（11 任务全实现，256 测试绿），等待人工验收（阶段六）。
+- 两层压缩：层1 工具结果存盘(offload) + 层2 LLM 摘要(compactor)；TUI 上下文指示器。
+- 前置 F0：工具结果跨消息轮持久（进程内；resume 恢复留后续）。
+- 验收提示词清单已交付（用 thousands.py 分片读 /compact /熔断等）。
 - 目标：给 CodePilot 装上两层压缩（层1 工具结果存盘 + 层2 LLM 结构化摘要），在有限 token 预算内长时间干活不溢出；TUI 实时显示上下文使用量。
 - 关键裁决（已定）：
   - 前置改造 F0——工具结果**跨轮持久**（此前只在单次 agent.run ctx 内存活）。
