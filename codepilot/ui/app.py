@@ -21,7 +21,7 @@ from codepilot.commands import parse_command
 from codepilot.modes import ModeState, ReleasePolicy, ToolAxis
 from codepilot.permissions.mode import PermissionMode
 from codepilot.permissions.policy import HumanChoice
-from codepilot.ui.widgets import StatusBar, ToolRow
+from codepilot.ui.widgets import PromptInput, StatusBar, ToolRow
 
 CAT = r"""
   ╱|、
@@ -34,8 +34,7 @@ VERSION = "0.2.0"
 
 class CodePilotApp(App):
     BINDINGS = [("ctrl+c", "quit", "退出"), ("escape", "cancel_loop", "取消"),
-                ("f2", "cycle_release", "切换模式"),
-                ("ctrl+enter", "submit", "发送")]  # state11 多行输入:Enter=换行,Ctrl+Enter=发送
+                ("f2", "cycle_release", "切换模式")]  # state11:Enter/Ctrl+Enter 由 PromptInput 内部接管
 
     CSS_PATH = "theme.tcss"
 
@@ -95,8 +94,8 @@ class CodePilotApp(App):
         yield RichLog(id="chat", highlight=True, markup=True, wrap=True)
         yield Vertical(id="tools")      # 工具 gutter:持久追加
         yield Static("", id="stream")
-        yield Static("Ctrl+Enter 发送 · Enter 换行 · 支持多行提示词  (/exit /plan /do)", id="prompt-hint")
-        yield TextArea(id="prompt")
+        yield Static("Enter 发送 · Ctrl+Enter 换行 · 支持多行提示词  (/exit /plan /do)", id="prompt-hint")
+        yield PromptInput(id="prompt")
         yield Footer()
         yield StatusBar()
 
@@ -113,8 +112,8 @@ class CodePilotApp(App):
             f"\n[dim]── 模式 → {policy.value}{ae_txt}[/dim]")
         self.query_one("#prompt", TextArea).clear()
 
-    def action_submit(self) -> None:
-        """Ctrl+Enter(state11):读多行输入内容,清空,进入统一分发。Enter 由 TextArea 换行。"""
+    def on_prompt_input_submitted(self) -> None:
+        """PromptInput 的 Submitted(PromptInput 内部 Enter 触发):读多行输入,清空,统一分发。"""
         if self._streaming or self._chat is None:
             return
         inp = self.query_one("#prompt", TextArea)

@@ -51,7 +51,7 @@ ToolRow {
     padding: 0 2;
 }
 
-/* 用户输入（多行 TextArea,凭 Enter 可输入多行,Ctrl+Enter 发送） */
+/* 用户输入（多行 PromptInput：Enter 发送,Ctrl+Enter 换行） */
 #prompt {
     height: 3;
     background: #111116;

@@ -3,23 +3,23 @@
 ## 目标
 TUI 输入框从单行 `Input` 换成多行 `TextArea`，支持粘贴/编辑多行提示词。
 
-## 关键决策（已确认）
-- **提交键 = B：Ctrl+Enter 发送，Enter 换行**（文本编辑器/Claude Code 惯例）。
-- `TextArea` 无 placeholder、无内置提交 → 提示语上移到独立行；自加 `ctrl+enter` → `action_submit`。
+## 关键决策（最终确认，经翻转）
+- **提交键 = Enter 发送，Ctrl+Enter 换行**（保留回车即发，多行用 Ctrl+Enter）。
+- 翻转原因：真机实测 Ctrl+Enter 在终端不可靠（TextArea 内部吞掉——既不发送也不换行）。
+
+## 关键技术发现：声明式 BINDINGS 拦不住 Enter
+`TextArea._on_key` 内部把 `enter`→`"\n"`，绕过 BINDINGS。需**子类 `PromptInput` 覆写 `_on_key`**：
+- enter → post `Submitted` 消息；ctrl+enter → 镜像基类 `_replace_via_keyboard("\n")` 换行；其余 → `super()`。
 
 ## 技术要点（Textual 8.2.8 实测）
 - `TextArea.text` 读写（非 `.value`）；`.clear()`、`.disabled`。
-- `TextArea.BINDINGS` 无 `enter` → Enter 默认插换行，无需覆盖。
-- App 级 `BINDINGS` 加 `("ctrl+enter","submit","发送")`，TextArea 不拦截 ctrl+enter → 生效。
+- `TextArea` 无 placeholder、无内置提交消息 → 自定义 `Submitted(Message)`。
 
 ## 改动清单
-1. `codepilot/ui/app.py`
-   - import: `Input` → `TextArea`。
-   - `BINDINGS` 加 ctrl+enter。
-   - `compose`: 加 `Static(id="prompt-hint")` 提示行 + `TextArea(id="prompt")` 替代 `Input`。
-   - `on_input_submitted` → 拆为 `action_submit`（读入+清空+分发）与 `_submit(text)`（命令解析/对话分发，单一入口）。
-   - 删 4 处 `query_one("#prompt", Input).value=""` → `TextArea.clear()`；`_process_chat` 类型改 `TextArea`。
-2. `codepilot/ui/theme.tcss`：`#prompt` 定高 3（内部滚动）+ 新增 `#prompt-hint` 样式。
+1. 新增 `codepilot/ui/widgets/prompt_input.py`：`PromptInput(TextArea)` + `Submitted(Message)` + 覆写 `_on_key`。
+2. `codepilot/ui/app.py`：compose yield `PromptInput(id="prompt")`；`on_prompt_input_submitted`（读→clear→`_submit`）；移除 App 级 ctrl+enter 绑定；`_submit(text)` 单一发送入口。
+3. `codepilot/ui/theme.tcss`：`#prompt` 定高 3 + `#prompt-hint` 提示行。
+4. docs 三份。
 3. docs 三份（本 plan + task + checklist）。
 
 ## 验证
