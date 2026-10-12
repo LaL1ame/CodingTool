@@ -81,6 +81,7 @@ class CodePilotApp(App):
         log.write(f"[dim]{cfg.name} · {cfg.model}  ({proto}) — Ready[/dim]\n")
 
         self._apply_modes()  # 把构造传入的初始 release 同步到后端
+        self.query_one("#prompt", TextArea).focus()  # 启动即把输入焦点交给 prompt(否则落在 RichLog)
         self._refresh_status()
 
     def on_unmount(self) -> None:
@@ -95,7 +96,7 @@ class CodePilotApp(App):
         yield Vertical(id="tools")      # 工具 gutter:持久追加
         yield Static("", id="stream")
         yield Static("Enter 发送 · Ctrl+Enter 换行 · 支持多行提示词  (/exit /plan /do)", id="prompt-hint")
-        yield PromptInput(id="prompt")
+        yield PromptInput(id="prompt", soft_wrap=True)  # soft_wrap:长行折行自适应;height:auto 随内容长高(见 theme.tcss)
         yield Footer()
         yield StatusBar()
 

@@ -11,7 +11,8 @@
 - [x] 多行编辑：粘贴/打字 >1 行不截断，多行内容 Enter 完整发送（实测 `a\nb` 全量发出）。
 - [x] 纯命令路由：`/mode` `/exit` `/plan` `/do` `/compact` `/continue` `/edits` 走 `_submit`。
 - [x] 流式/禁用状态：`_submit` 置 `inp.disabled=True`，`_process_chat` finally 恢复。
-- [x] 输入区定高 3、超长内部滚动（theme.tcss `#prompt { height: 3 }`）。
+- [x] **自动长高**：`#prompt { height: auto; max-height: 40% }` + `soft_wrap=True`，随内容增长、达 40% 屏高转内部滚动（实测 line 5→h=5）。
+- [x] **启动自动聚焦**：`on_mount` 里 `query_one("#prompt").focus()`，否则 focus 落在 RichLog、按键不达 prompt（实测修复根因）。
 
 ## 回归
 - [x] 无残留 `Input(id="prompt")` / widget `.value` 引用（grep）。
