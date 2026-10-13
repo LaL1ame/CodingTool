@@ -8,6 +8,23 @@
 
 ## 最近一次更新：2026-10-13
 
+### state14（开发+验收全通过，已提交）
+**state14：命令注册与分发机制**（`docs/state14-command-registry/`；提交 e6a0f3e 代码 + 跟随 docs）
+- **状态：全部完成并提交流，338 测试绿（原 308 + 30 新增）。**
+- 目标：把斜杠命令从硬编码 if-链泛化为「注册中心+解析器+分发器+界面控制接口」，让命令绕过 Agent 直接执行（响应快/省 token/行为确定）。
+- **架构**：`codepilot/commands.py` → `commands/` 子包（registry/parser/dispatcher/builtins(18命令)/completer + context 协议）。`ui/app.py` `_submit` 收窄为分流器 + `_CommandContextImpl`（DIP）→ 命令不绑定 Textual。命令 `handler(ctx, params) -> str|None`（返回消息则转发 AI，None 本地）。`CommandKind` 三态：LOCAL/UI/PROMPT。
+- **关键点**：
+  1. 别名冲突启动期 fail-fast（register + assert_no_conflicts 双保险），而非运行时炸。
+  2. 界面控制接口 `CommandContext` 是命令触达 UI 唯一通道，换渲染框架另实现即可复用。
+  3. 模式标记 `[DEFAULT]/[PLAN]`（build 轴→DEFAULT）；`/plan` 只读轴、`/do` 恢复全工具，均支持带消息转发。
+  4. Tab 补全：单命中直接补、多命中 `ModalScreen`+`ListView` 弹菜单；候选纯来自注册表、隐藏命令不出现。
+  5. 未命中斜杠 → `/help` 引导**不送 AI**（方案 A）。
+- **真机发现并修复一个 bug**：第一版补全屏用 `Static` 渲染候选在 Textual 8.2.8 触发 `'str has no render_strips'` 崩溃 → 改用 `ListView` 版，并加 headless `test_completion_screen.py`（加载真实 theme.tcss）做回归防线。
+- **验收**：checklist 27/27 全勾（自动化 338 测 + 用户真机 19 清单 + 3 硬场景：/review PROMPT转发、/clear 清屏留上下文、/plan 只读 /do 恢复+转发；/continue 撑爆 18 轮续跑也验证过）。旧命令（exit/plan/do/mode/edits/compact/continue/memory/forget）全部迁移无回归。
+- 18 条命令：LOCAL(help/exit/memory/session/status) · UI(plan/do/mode/auto/manual/strict/edits/compact/continue/forget/clear/permission) · PROMPT(review)。
+- 遗留：仓库 30 处 ruff 为**既有基线**（test_tools_read 等旧文件），非本次引入，未动。
+- 新上手：读本文 + `docs/state14-command-registry/{spec,plan,task,checklist}.md` 即可恢复。下一步 state N 具体范围待定。
+
 ### state13（开发完成，端到端真机验证通过，剩一项 TUI 观感终验）
 **state13：项目指令 + 自动记忆 + 注入**（`docs/state13-memory/`）
 - **状态：T1-T8 全部实现，308 测试绿。端到端真机链路全跑通**（自动记忆沉淀 +1 / `/forget` 删1再删0幂等 / 注入可见 / 边界无副作用）；只剩 checklist 场景1「模型按 .rules 指令风格回复」的 TUI 观感项待用户终验。
