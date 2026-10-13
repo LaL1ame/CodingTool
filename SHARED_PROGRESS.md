@@ -6,7 +6,22 @@
 
 ---
 
-## 最近一次更新：2026-10-13
+## 最近一次更新：2026-10-14
+
+### state15（开发完成，自动化验收通过，待真机清单）
+**state15：Skill 系统**（`docs/state15-skill-system/`）
+- **状态：四文档获批后开发完成，376 测试绿（原 338 + 新增 38），state15 文件 ruff 全清。**
+- 目标：把可复用 AI 操作封装成带元信息的 Markdown 能力包，两阶段加载 + 共享/独立双执行 + 工具白名单收窄，解决「反复输入同样提示词」。承接 state14 明确的后续（动态命令注入）。
+- **架构**：新包 `codepilot/skills/`（model/loader/resolver/manager/tool + data 内置样板）。三级存放 `.skills`（项目>用户>内置 `skills/data/`，随包 package-data）。两阶段注入复用 `prompt/builder` volatile 尾块（`skill_blocks`，env 后最显眼位）；白名单复用 `agent._build_tools` 交集（∩plan 只读，系统 `load_skill` 恒可见为逃生门）；命令动态注册复用 state14 `CommandRegistry.register(replace=True)`。
+- **关键裁决**：
+  1. **目录 `.skills` 三级**（项目/用户/内置），同名高者覆盖；内置打包走 `pyproject package-data`。
+  2. **白名单硬收窄**：可见工具 = 全量 ∩（白名单∪系统）∩（plan 只读）；`tools` 留空=该 skill 不约束；多激活取并集。
+  3. **历史量仅 frontmatter 定死**；独立模式模型覆盖仅 isolated 生效。
+  4. **撞名统一**：Skill 命令用 `replace=True` 胜出；state14 `/review` PROMPT 命令移除、载荷并入内置 review skill（`/review` 现由 review skill 提供，isolated 独立对话）。
+  5. **/clear 联动**：清空对话时 `deactivate_all` 复位激活+白名单，但已注册 skill 命令保留（可快速重触发）。
+- 内置三样板：commit(shared) / review(isolated,目录型) / test(shared)。
+- 文件：`codepilot/skills/*`、`prompt/{builder,sections}.py`、`agent.py`、`tools/base.py`、`commands/registry.py`、`commands/builtins.py`、`ui/app.py`、`main.py`、`pyproject.toml`、6 个新测试。
+- 待做：交付阶段五人工验证清单 → 阶段六真机验收（两阶段/独立模式/白名单/热更新/clear 联动/fail-fast）。
 
 ### state14（开发+验收全通过，已提交）
 **state14：命令注册与分发机制**（`docs/state14-command-registry/`；提交 e6a0f3e 代码 + 跟随 docs）

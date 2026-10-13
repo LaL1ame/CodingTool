@@ -6,6 +6,26 @@
 
 ---
 
+## ADR-002:Skill 命令撞名时 Skill 胜出并统一入口;`/review` 由 PROMPT 命令移交内置 review Skill(2026-10-14)
+
+### 背景
+state15（Skill 系统）让「加载/激活的 Skill 自动注册成斜杠短命令」。内置三样板含 `review`,其命令名与 state14 既有 `/review`(PROMPT 命令:把一段写死的审查提示词送 AI)撞名。
+
+### 决策
+- Skill 命令通过 `CommandRegistry.register(spec, replace=True)` 注册:撞名时**移除旧 spec、登记新版**,Skill 版本胜出。
+- state14 的 `/review` PROMPT 命令**移除**,其预设文案并入内置 `review` Skill 正文(SOP 是严格超集:白名单+双模式+占位符);`REVIEW_PROMPT` 常量保留仅向后兼容。
+
+### 理由
+- 避免「两个半重叠的 review 概念」(旧 `/review` 与新 `/skill-review` 并存且行为微妙不同)加剧混乱。
+- Skill 系统正是「预设提示词送 AI」这类散件的统一归宿——同类操作收敛到一个入口、一份代码,符合「重构优先于修补」。
+- `replace=True` 使热更新与动态覆盖无损,`assert_no_conflicts` 启动严格校验语义不变(仅动态路径用 replace)。
+
+### 后果
+- 用户肌肉记忆的 `/review` 仍在,但行为升级为独立对话审查(不再把提示词注入当前对话)。
+- 用户/项目级 `.skills` 若出现与核心命令同名的 Skill,将以 Skill 版本覆盖——需提醒避免用 `status/help/exit` 等核心名命名。
+
+---
+
 ## ADR-001:放行模式循环用 `F2`,不用 `Shift+Tab` 或 `Ctrl+标点`(2026-09-28)
 
 ### 背景与需求
