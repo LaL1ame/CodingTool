@@ -9,8 +9,8 @@ def test_builtin_full_set_and_no_conflicts():
     names = {s.name for s in r.all()}
     expected = {"help", "exit", "plan", "do", "mode", "auto", "manual", "strict",
                 "edits", "compact", "continue", "memory", "forget", "clear",
-                "session", "permission", "status", "review"}
-    assert names == expected
+                "session", "permission", "status"}
+    assert names == expected  # state15: /review 移交内置 review Skill(非内置命令)
 
 
 def test_kinds_assignment():
@@ -22,7 +22,6 @@ def test_kinds_assignment():
     assert kinds["plan"] is CommandKind.UI
     assert kinds["clear"] is CommandKind.UI
     assert kinds["permission"] is CommandKind.UI
-    assert kinds["review"] is CommandKind.PROMPT
 
 
 def test_aliases_present():

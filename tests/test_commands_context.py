@@ -72,7 +72,7 @@ def test_help_lists_all_grouped_and_not_hidden():
     _cmd(r, "help").handler(ctx, "")
     assert len(ctx.messages) == 1
     assert "可用命令" in ctx.messages[0]
-    for name in ("clear", "plan", "review"):
+    for name in ("clear", "plan", "exit"):
         assert f"/{name}" in ctx.messages[0]
 
 
@@ -84,13 +84,6 @@ def test_plan_do_switch_axis_and_forward():
     assert out == "继续做权限"               # 带消息 → 转发
     assert _cmd(r, "do").handler(ctx, "") is None   # 无消息 → 本地
     assert ctx.axis[-1] == (ToolAxis.BUILD, True)
-
-
-def test_review_returns_preset():
-    from codepilot.commands.builtins import REVIEW_PROMPT
-    ctx = FakeCtx()
-    out = _cmd(build_registry(), "review").handler(ctx, "")
-    assert out == REVIEW_PROMPT
 
 
 def test_mode_validation_and_policies():
