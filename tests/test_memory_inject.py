@@ -14,8 +14,8 @@ def _injector(tmp_path: Path, ws_name: str = "ws") -> MemoryInjector:
 
 def test_build_two_blocks(tmp_path: Path):
     ws = tmp_path / "ws"
-    (ws / ".mewcode").mkdir(parents=True)
-    (ws / ".mewcode/general.md").write_text("回复务必附验收清单", encoding="utf-8")
+    (ws / ".rules").mkdir(parents=True)
+    (ws / ".rules/general.md").write_text("回复务必附验收清单", encoding="utf-8")
     inj = _injector(tmp_path)
     inj.store.append("preferences", ["喜欢中文回复"])
     blocks = inj.build()
@@ -31,8 +31,8 @@ def test_build_empty_returns_none(tmp_path: Path):
 
 def test_build_only_instructions(tmp_path: Path):
     ws = tmp_path / "ws"
-    (ws / ".mewcode").mkdir(parents=True)
-    (ws / ".mewcode/general.md").write_text("别用缩写", encoding="utf-8")
+    (ws / ".rules").mkdir(parents=True)
+    (ws / ".rules/general.md").write_text("别用缩写", encoding="utf-8")
     inj = _injector(tmp_path)
     blocks = inj.build()  # 无笔记
     assert len(blocks) == 1
@@ -41,8 +41,8 @@ def test_build_only_instructions(tmp_path: Path):
 
 def test_call_alias_and_volatile_tail(tmp_path: Path):
     ws = tmp_path / "ws"
-    (ws / ".mewcode").mkdir(parents=True)
-    (ws / ".mewcode/general.md").write_text("MEM", encoding="utf-8")
+    (ws / ".rules").mkdir(parents=True)
+    (ws / ".rules/general.md").write_text("MEM", encoding="utf-8")
     inj = _injector(tmp_path)
     blocks = inj()
     sp = build_system_prompt(

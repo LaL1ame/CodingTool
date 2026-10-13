@@ -19,35 +19,35 @@ def _write(tmp: Path, rel: str, content: str) -> Path:
 
 def test_discover_three_levels_ordered(tmp_path: Path):
     ws = tmp_path / "ws"
-    _write(ws, ".mewcode/a.md", "A")
-    _write(ws, "lib/.mewcode/b.md", "B")         # 深度 2
-    _write(ws, "lib/sub/.mewcode/c.md", "C")     # 深度 3
-    user = tmp_path / "user" / ".mewcode"
+    _write(ws, ".rules/a.md", "A")
+    _write(ws, "lib/.rules/b.md", "B")         # 深度 2
+    _write(ws, "lib/sub/.rules/c.md", "C")     # 深度 3
+    user = tmp_path / "user" / ".rules"
     _write(user, "u.md", "U")
 
     roots = discover_instruction_roots(ws, user_root=user)
     names = [r.name for r in roots]
     # 用户级最先;项目各级按深度升序(根=1位,深目录在后)
-    assert names[0] == ".mewcode"
-    assert (ws / "lib/.mewcode").resolve() in [r.resolve() for r in roots]
-    assert (ws / "lib/sub/.mewcode").resolve() in [r.resolve() for r in roots]
-    # 深度断言:项目根 .mewcode 在 lib/ 之前,lib/ 在 lib/sub/ 之前
+    assert names[0] == ".rules"
+    assert (ws / "lib/.rules").resolve() in [r.resolve() for r in roots]
+    assert (ws / "lib/sub/.rules").resolve() in [r.resolve() for r in roots]
+    # 深度断言:项目根 .rules 在 lib/ 之前,lib/ 在 lib/sub/ 之前
     rs = [r.resolve() for r in roots]
-    assert rs.index((ws / ".mewcode").resolve()) < rs.index((ws / "lib/.mewcode").resolve())
-    assert rs.index((ws / "lib/.mewcode").resolve()) < rs.index((ws / "lib/sub/.mewcode").resolve())
+    assert rs.index((ws / ".rules").resolve()) < rs.index((ws / "lib/.rules").resolve())
+    assert rs.index((ws / "lib/.rules").resolve()) < rs.index((ws / "lib/sub/.rules").resolve())
 
 
 def test_discover_ignores_git(tmp_path: Path):
     ws = tmp_path / "ws"
-    _write(ws, ".git/.mewcode/x.md", "X")   # 该深度应被剪枝
-    _write(ws, ".mewcode/a.md", "A")
+    _write(ws, ".git/.rules/x.md", "X")   # 该深度应被剪枝
+    _write(ws, ".rules/a.md", "A")
     roots = discover_instruction_roots(ws, user_root=tmp_path / "nouser")
     rs = [r.resolve() for r in roots]
-    assert (ws / ".git/.mewcode").resolve() not in rs
-    assert (ws / ".mewcode").resolve() in rs
+    assert (ws / ".git/.rules").resolve() not in rs
+    assert (ws / ".rules").resolve() in rs
 
 
-def test_no_mewcode_returns_empty(tmp_path: Path):
+def test_no_rules_returns_empty(tmp_path: Path):
     ws = tmp_path / "ws"
     ws.mkdir()
     assert discover_instruction_roots(ws, user_root=tmp_path / "nouser") == []
@@ -56,17 +56,17 @@ def test_no_mewcode_returns_empty(tmp_path: Path):
 # ── F2 @include ──────────────────────────────────────────────
 
 def test_include_expands_inline(tmp_path: Path):
-    base = _write(tmp_path, ".mewcode/root.md", "@include child.md\nROOT")
-    _write(tmp_path, ".mewcode/child.md", "CHILD")
+    base = _write(tmp_path, ".rules/root.md", "@include child.md\nROOT")
+    _write(tmp_path, ".rules/child.md", "CHILD")
     out = expand_includes(base.read_text(encoding="utf-8"), base.parent)
     assert "CHILD" in out
     assert "ROOT" in out
 
 
 def test_include_depth_limit_skips(tmp_path: Path):
-    base = _write(tmp_path, ".mewcode/a.md", "@include b.md\nA")
-    _write(tmp_path, ".mewcode/b.md", "@include c.md\nB")
-    _write(tmp_path, ".mewcode/c.md", "C")
+    base = _write(tmp_path, ".rules/a.md", "@include b.md\nA")
+    _write(tmp_path, ".rules/b.md", "@include c.md\nB")
+    _write(tmp_path, ".rules/c.md", "C")
     text = base.read_text(encoding="utf-8")
     out = expand_includes(text, base.parent, depth=3, depth_limit=4)
     assert "B" in out and "A" in out
@@ -74,15 +74,15 @@ def test_include_depth_limit_skips(tmp_path: Path):
 
 
 def test_include_cycle_terminates(tmp_path: Path):
-    _write(tmp_path, ".mewcode/a.md", "@include b.md\nA")
-    _write(tmp_path, ".mewcode/b.md", "@include a.md\nB")
-    text = (tmp_path / ".mewcode/a.md").read_text(encoding="utf-8")
-    out = expand_includes(text, tmp_path / ".mewcode")
+    _write(tmp_path, ".rules/a.md", "@include b.md\nA")
+    _write(tmp_path, ".rules/b.md", "@include a.md\nB")
+    text = (tmp_path / ".rules/a.md").read_text(encoding="utf-8")
+    out = expand_includes(text, tmp_path / ".rules")
     assert "A" in out and "B" in out  # 不无限递归,visited 防环
 
 
 def test_include_escape_blocked(tmp_path: Path):
-    base = _write(tmp_path, "ws/.mewcode/a.md", "@include ../secret.md\nA")
+    base = _write(tmp_path, "ws/.rules/a.md", "@include ../secret.md\nA")
     _write(tmp_path, "ws/secret.md", "SECRET")
     text = base.read_text(encoding="utf-8")
     out = expand_includes(text, base.parent)
@@ -91,7 +91,7 @@ def test_include_escape_blocked(tmp_path: Path):
 
 
 def test_include_missing_file_skips_rest_kept(tmp_path: Path):
-    base = _write(tmp_path, ".mewcode/a.md", "@include nope.md\nA")
+    base = _write(tmp_path, ".rules/a.md", "@include nope.md\nA")
     out = expand_includes(base.read_text(encoding="utf-8"), base.parent)
     assert "@include" not in out
     assert "A" in out
@@ -101,9 +101,9 @@ def test_include_missing_file_skips_rest_kept(tmp_path: Path):
 
 def test_load_instructions_concats_by_root(tmp_path: Path):
     ws = tmp_path / "ws"
-    _write(ws, ".mewcode/a.md", "@include a1.md\nROOT")
-    _write(ws, ".mewcode/a1.md", "R1")
-    _write(ws, "lib/.mewcode/b.md", "SUB")
+    _write(ws, ".rules/a.md", "@include a1.md\nROOT")
+    _write(ws, ".rules/a1.md", "R1")
+    _write(ws, "lib/.rules/b.md", "SUB")
     text = load_instructions(ws, user_root=tmp_path / "nouser")
     assert "ROOT" in text and "R1" in text and "SUB" in text
     # 顺序:项目根在前,更深子目录在后
@@ -114,5 +114,5 @@ def test_load_instructions_empty_and_bad_file(tmp_path: Path):
     ws = tmp_path / "ws"
     ws.mkdir()
     assert load_instructions(ws, user_root=tmp_path / "nouser") == ""
-    _write(ws, ".mewcode/ok.md", "OK")
+    _write(ws, ".rules/ok.md", "OK")
     assert "OK" in load_instructions(ws, user_root=tmp_path / "nouser")

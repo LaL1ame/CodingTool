@@ -32,8 +32,8 @@ class _FakeProvider:
 
 def _mk(tmp_path):
     ws = tmp_path / "ws"
-    (ws / ".mewcode").mkdir(exist_ok=True, parents=True)
-    (ws / ".mewcode/general.md").write_text("回复务必附验收清单", encoding="utf-8")
+    (ws / ".rules").mkdir(exist_ok=True, parents=True)
+    (ws / ".rules/general.md").write_text("回复务必附验收清单", encoding="utf-8")
     store = NoteStore(ws, user_dir=tmp_path / "user", proj_dir=tmp_path / "proj")
     store.append("preferences", ["喜欢中文回复"])
     inj = MemoryInjector(ws, store=store)

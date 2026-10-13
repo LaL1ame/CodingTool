@@ -39,14 +39,14 @@ T3(builder, 独立) → 可与 T1/T2 并行
 **文件：** `codepilot/memory/resolver.py`
 **依赖：** 无
 **步骤：**
-1. 定义 `CATEGORY_ROOT_NAME = ".mewcode"`。
+1. 定义 `CATEGORY_ROOT_NAME = ".rules"`。
 2. `discover_instruction_roots(workspace: Path, user_root: Path | None = None) -> list[Path]`：
-   - 用户级：`user_root` 默认 `Path.home()/".mewcode"`（可注入，便于测试不碰真 home）。
-   - 项目级：递归扫 workspace 下所有 `.mewcode/` 目录，按目录深度升序（根=0 最前，深目录在后）。去重、排除用户级。
+   - 用户级：`user_root` 默认 `Path.home()/".rules"`（可注入，便于测试不碰真 home）。
+   - 项目级：递归扫 workspace 下所有 `.rules/` 目录，按目录深度升序（根=0 最前，深目录在后）。去重、排除用户级。
    - 返回 `[用户级, *项目各级]`。
 3. `expand_includes(text, base_dir, *, depth=0, depth_limit=4, visited=None) -> str`：
    - 按行扫描 `@include <rel>`；解析失败处只跳过该行，其余行保留。
-   - 目标路径 = `(base_dir / rel).resolve()`；若不在 `base_dir` 所属的 `.mewcode` 树内（用 resolve 后以某一 `.mewcode` 父目录作边界）→ 跳过（防逃逸）。
+   - 目标路径 = `(base_dir / rel).resolve()`；若不在 `base_dir` 所属的 `.rules` 树内（用 resolve 后以某一 `.rules` 父目录作边界）→ 跳过（防逃逸）。
    - `depth >= depth_limit` 或目标已在 `visited` 或读取失败 → 跳过。否则递归展开。
 4. `load_instructions(workspace) -> str`：逐根读该根下所有 `*.md`（按文件名排序）+ 各自 expand，按根序拼接；单文件读失败静默跳过并 `logging.getLogger("codepilot.memory").warning(...)`。
 5. 空目录/无文件 → 返回 `""`。

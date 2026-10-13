@@ -60,7 +60,7 @@ class NoteStore:
 
 ### `memory/resolver.py`（F1/F2，纯函数，可单测）
 - `discover_instruction_roots(workspace) -> list[Path]`
-  输出三层根，从最不具体到最具体：`[用户级, 项目根, *递归子目录]`。递归遍历 workspace 找 `.mewcode/` 目录，按深度升序（根=0 在前，深目录微后）。
+  输出三层根，从最不具体到最具体：`[用户级, 项目根, *递归子目录]`。递归遍历 workspace 找 `.rules/` 目录，按深度升序（根=0 在前，深目录微后）。
 - `expand_includes(md, base_dir, *, depth_limit=4, visited=None) -> str`
   处理 `@include <相对路径>`；相对 base_dir 解析；超 `depth_limit` / 已 visited / 越出指令目录树 → 跳过该处；`@include` 引用目标本身也递归展开。
 - `load_instructions(workspace) -> str`

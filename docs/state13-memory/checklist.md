@@ -3,9 +3,9 @@
 > 每一项通过运行代码或观察行为来验证，聚焦系统行为。
 
 ## 实现完整性
-- [ ] 指令三层发现（`discover_instruction_roots`）按「用户级→项目根→递归子目录」顺序返回，深度升序（验证：临时目录建造三层 `.mewcode/*.md` 后 `load_instructions` 顺序含三块内容）。
+- [ ] 指令三层发现（`discover_instruction_roots`）按「用户级→项目根→递归子目录」顺序返回，深度升序（验证：临时目录建造三层 `.rules/*.md` 后 `load_instructions` 顺序含三块内容）。
 - [ ] `@include` 原地展开；嵌套超 depth_limit、成环、路径逃逸时只跳过该引用、主文件其余行保留（验证：造超限/环/逃逸 fixture 后输出含主内容、不含被拦引用）。
-- [ ] 空指令场景不抛错，`load_instructions` 返回空串（验证：无 `.mewcode/` 的项目调用返回 `""`，不异常）。
+- [ ] 空指令场景不抛错，`load_instructions` 返回空串（验证：无 `.rules/` 的项目调用返回 `""`，不异常）。
 
 ## 笔记存储
 - [ ] 四类笔记按目录分放：`preferences/corrections` → 用户级，`project_knowledge/references` → 项目级（验证：`store.append` 后对应 `.md` 出现在正确目录，返回标识字符串正确）。
@@ -35,6 +35,6 @@
 ## 端到端场景
 - [x] 场景 2（自动记忆沉淀）**真机跑通**：真实 API 会话「普通问答→自然 done」→ 后台自动记忆触发，笔记库 21→22（+1 项目知识）；新增条目出现在 `/memory`【记忆】块尾部（验证：实时 API 驱动日志 `memory auto: +1 project_knowledge`）。
 - [x] 场景 3（/forget 可控+幂等）**真机跑通**：对新笔记用独特关键词 `负责包` → 命中 1 → 删 1（21→20，计数一致）；再删 → 0（幂等）；关键词已不在笔记库（验证：实时 delete 驱动，命中数=删除数=减少数，二次 0）。
-- [x] 场景 4（边界无副作用）**真机确认**：`/forget` 只删自动笔记、不删手写 `.mewcode` 指令（写 instruction 后 delete 返回 0，符合设计，已写入 spec「不做的事」）。
-- [x] 场景 5（注入可见）：`.mewcode/general.md` 指令经 injected 进入 volatile 【项目指令】块，`/memory` 分组显示（验证：MemoryInjector.build 返回 指令块+索引块 两段）。
-- [ ] 场景 1（指令内联生效）：真机 TUI 观察「模型按 .mewcode 指令风格回复」——已由单测（build 含指令块）与注入链路覆盖，真机观感项留待用户在 TUI 终验。
+- [x] 场景 4（边界无副作用）**真机确认**：`/forget` 只删自动笔记、不删手写 `.rules` 指令（写 instruction 后 delete 返回 0，符合设计，已写入 spec「不做的事」）。
+- [x] 场景 5（注入可见）：`.rules/general.md` 指令经 injected 进入 volatile 【项目指令】块，`/memory` 分组显示（验证：MemoryInjector.build 返回 指令块+索引块 两段）。
+- [ ] 场景 1（指令内联生效）：真机 TUI 观察「模型按 .rules 指令风格回复」——已由单测（build 含指令块）与注入链路覆盖，真机观感项留待用户在 TUI 终验。
