@@ -8,9 +8,9 @@
 
 ## 最近一次更新：2026-10-12
 
-### state12（开发完成，待真机验收）
+### state12（已验收通过）
 **state12：会话恢复韧性**（`docs/state12-session-restore/spec.md`）
-- **状态：T1-T9 全部完成，274 测试绿（264 既有 + 10 新增），待人工真机验收（阶段六）**。
+- **状态：T1-T9 + 两项 UX 收尾全部完成，274 测试绿（264 既有 + 10 新增），真机验收通过（用户实机确认：还原见对话、可回滚、--new 空白、无崩溃）**。
 - 目标：让「中断→重启接着用」真正成立。写回(工具调用持久化)→恢复(dangling截断/token压一次/时间提醒)→清理(30天过期回收)。
 - **已落地**：
   1. ID `YYYYMMDD-HHMMSS-xxxx`（本地时间+4位hex防同秒）→ `store.new_session_path`；列表按文件名降序。
@@ -24,7 +24,7 @@
 - **历史回放 UX（用户要求，对齐 Claude Code）**：`app.on_mount` 调 `_replay_history` 把恢复的上段对话整段画回 RichLog、可上滚；样式同新消息；`--new`/无历史时不画。让「只有记忆看不到对话」的缺口补上——恢复即见对话。
 - **可观测性（真机验收时补）**：`restore_chat` 打 `restore <file>: N msgs (dangling_cut/M)`、`_pick_session` 打 `新开会话`/`过期清理删 N`——恢复可从 logs/codepilot.log 自证，非「感觉没问题」。
 - 文件：`session/store.py`,`session/restore.py`(新),`chat.py`,`context/manager.py`,`main.py`,`ui/app.py`,`config.py`,`config.example.yaml`,`tests/test_restore.py`(新)。
-- 待做：**真机验收**——带工具多轮 → 中断 → 重启 `--resume` → 上下文完整还原/dangling截断/无崩溃。state13(指令+自动记忆)见下。
+- 阶段六验收通过（用户实机确认）：`-c`/`--resume` 还原见对话可回滚、`--new` 空白、无崩溃；恢复日志已自证。下一阶段 state13(指令+自动记忆)见下。
 
 ### state13（规划 outline，未开始）
 **state13：项目指令 + 自动记忆 + 注入**（下一阶段，spec 待编）
