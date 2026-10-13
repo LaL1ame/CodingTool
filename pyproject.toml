@@ -25,6 +25,10 @@ codepilot = "codepilot.main:main"
 [tool.setuptools.packages.find]
 include = ["codepilot*"]
 
+[tool.setuptools.package-data]
+# state15: 内置 Skill 样板（.md / 目录型）随包分发，否则安装后内置为空。
+codepilot = ["skills/data/*.md", "skills/data/**/*"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

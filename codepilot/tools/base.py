@@ -30,6 +30,15 @@ class Tool(ABC):
         """是否有副作用（写文件/执行命令）。True → 串行执行。默认 False（只读）。"""
         return False
 
+    @property
+    def system_exempt(self) -> bool:
+        """是否为系统级工具、不受 Skill 工具白名单约束。默认 False。
+
+        True 的工具（如 load_skill）任何白名单下都保持可见可调 —— 逃生门，
+        防止某个 Skill 漏写工具把用户锁死（state15 F7）。
+        """
+        return False
+
     @abstractmethod
     async def execute(self, **kwargs) -> "ToolResult":
         """执行工具逻辑。异常应在方法内部捕获并转为 ToolResult(error=...)。"""

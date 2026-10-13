@@ -1,4 +1,8 @@
-"""CodePilot 工具系统 — 统一工具接口 + 注册中心 + 六个核心工具。"""
+"""CodePilot 工具系统 — 统一工具接口 + 注册中心 + 六个核心工具。
+
+系统级 skill 工具（LoadSkillTool）归属 skills 包，由 skill 子包导出；
+此处不等同导出，避免 tools↔skills 包级循环导入（main.py 从 codepilot.skills 引）。
+"""
 
 from codepilot.tools.base import Tool, validate_path
 from codepilot.tools.registry import ToolRegistry
