@@ -26,12 +26,16 @@
 - 文件：`session/store.py`,`session/restore.py`(新),`chat.py`,`context/manager.py`,`main.py`,`ui/app.py`,`config.py`,`config.example.yaml`,`tests/test_restore.py`(新)。
 - 阶段六验收通过（用户实机确认）：`-c`/`--resume` 还原见对话可回滚、`--new` 空白、无崩溃；恢复日志已自证。下一阶段 state13(指令+自动记忆)见下。
 
-### state13（规划 outline，未开始）
-**state13：项目指令 + 自动记忆 + 注入**（下一阶段，spec 待编）
-- 三层指令文件(`.mewcode/` 项目根 / `.mewcode/` 子目录 / `~/.mewcode/`)手写 Markdown，按优先级拼接 + `@include`(限深/visited 防环/防逃逸)。
-- 四类自动笔记(用户偏好/纠正反馈/项目知识/参考资料)：每轮 Agent Loop 自然停(done,无工具调用)后**异步**调 LLM 更新，去重交 LLM；用户级 `~/.codepilot/memory/` 与项目级分开存；索引 ≤200 行/25KB 注入 prompt。
-- 记忆注入点：`prompt/builder.py` 分层 system prompt 加 volatile 记忆块；大小经 context estimator 控。
-- 明确不做：向量库/RAG/团队记忆同步。
+### state13（开发完成，验收基本通过）
+**state13：项目指令 + 自动记忆 + 注入**（`docs/state13-memory/`）
+- **状态：T1-T8 全部实现，308 测试绿（274 既有 + 34 新增），端到端真机验证通过（自动记忆 + /forget 链路用真实 API 跑通：natural done → +1 笔记落盘 → /forget 删 1 → 幂等 0）**。剩 TUI 观感项(指令风格响应)待用户终验。
+- 三层指令文件：`resolver.py` 发现 `.mewcode/` 项目根+递归子目录+用户级 `~/.mewcode/`，按深度升序拼接；`@include` 限深 4 / visited 防环 / 同树逃逸拦截。
+- 四类自动笔记：`store.py` 偏好/纠正→用户级、项目知识/资料→项目级，分 `~/.codepilot/memory` 与 `~/.codepilot/projects/<sha1>/memory` 落盘；`auto.py` 每轮 done 后后台异步 LLM 压缩写回(fire-and-forget，复用 `provider.complete`)。
+- 注入：`inject.py MemoryInjector` 把指令+记忆索引(prompt/builder 的 volatile 尾块)拼进每轮 system prompt，≤200 行/25KB；`agent` 只拿不透明 `memory_injector` 回调，低耦合。
+- 命令：`/memory` 分组展示（【项目指令】/【记忆】）、`/forget 词` 删自动笔记(幂等)。
+- **边界(已写进 spec「不做的事」)**：`/forget` 只删自动笔记；手写 `.mewcode` 指令用户手动改文件删，两者删除路径刻意分开（源文件 vs 派生缓存）。
+- **测试关键：触发自动记忆要用「普通问答→自然收尾」，不是明说「记住」**（后者会走 Agent 代写 .mewcode，不 done 也不沉淀）。
+- 明确不做：向量库/RAG/团队同步/记忆自动过期。
 
 ### state11（已验收通过）
 **state11：TUI 多行输入**（`docs/state11-multiline-input/`）
