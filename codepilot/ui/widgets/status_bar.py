@@ -25,14 +25,19 @@ class StatusBar(Static):
 
     def update_state(self, *, axis: str, release: str, accept_edits: bool,
                      model: str, tokens: int, elapsed_s: float,
-                     ctx_usage: str = "") -> None:
-        """组装状态行 markup。axis/release 取 ToolAxis/ReleasePolicy.value。"""
+                     ctx_usage: str = "", axis_label: str | None = None) -> None:
+        """组装状态行 markup。axis/release 取 ToolAxis/ReleasePolicy.value。
+
+        axis_label(state14): 模式标记显式展示值(如 build→"DEFAULT"、plan→"PLAN")。
+        缺省时回退 axis.upper()(向后兼容)。颜色仍按 axis 键取值,不因展示标签变化。
+        """
         ac = palette.axis_color(axis)
         rc = palette.release_color(release)
         ae = palette.ACCEPT_EDITS_COLOR
 
+        label = (axis_label or axis).upper()
         markers = [
-            f"[{ac}]{axis.upper()}[/{ac}]",
+            f"[{ac}]{label}[/{ac}]",
             f"[{rc}]{release}[/{rc}]",
             f"[{ae}]AE[/{ae}]" if accept_edits else "AE-off",
         ]

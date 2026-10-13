@@ -9,6 +9,8 @@ TextArea 在内部 `_on_key` 把 enter 直接映射为插换行（声明式 BIND
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from textual.events import Key
 from textual.message import Message
 from textual.widgets import TextArea
@@ -19,12 +21,53 @@ _NEWLINE_KEYS = frozenset({"ctrl+j"})
 
 
 class PromptInput(TextArea):
-    """Enter=发送、Ctrl+J=换行的多行输入框。"""
+    """Enter=发送、Ctrl+J=换行的多行输入框；支持 Tab 命令补全(state14)。"""
 
     class Submitted(Message):
         """用户按 enter 确认发送。App 据此读取文本并调 _submit 分发。"""
 
+    class CompletionRequested(Message):
+        """Tab 多命中：请求 App 弹补全菜单（携候选与当前前缀）。"""
+
+        def __init__(self, candidates: list[str], prefix: str) -> None:
+            super().__init__()
+            self.candidates = candidates
+            self.prefix = prefix
+
+    def __init__(self, completer: Callable[[str], list[str]] | None = None,
+                 **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._completer = completer
+
+    def _command_prefix(self) -> str | None:
+        """当行首为斜杠时返回当前补全前缀('/' 后至首空白前的 token),否则 None。"""
+        text = self.text
+        if not text.lstrip().startswith("/"):
+            return None
+        stripped = text.lstrip()
+        return stripped[1:].split(" ", 1)[0]
+
+    def apply_completion(self, name: str) -> None:
+        """把当前 '/' 前缀替换为 '/<name> '(由补全菜单选中回调)。"""
+        prefix = self._command_prefix()
+        if prefix is None:
+            return
+        text = self.text
+        slash = text.find("/")
+        # 替换 '/' 之后的前缀段
+        rest = text[slash + 1:]
+        if len(rest) >= len(prefix) and rest.startswith(prefix):
+            new = text[:slash + 1] + name + " " + text[slash + 1 + len(prefix):]
+        else:
+            new = text[:slash] + "/" + name + " "
+        self.text = new
+
     async def _on_key(self, event: Key) -> None:
+        if event.key == "tab":
+            event.stop()
+            event.prevent_default()
+            self._handle_tab()
+            return
         if event.key == "enter":
             # 发送：吞掉事件（不插换行），通知 App。
             event.stop()
@@ -40,3 +83,17 @@ class PromptInput(TextArea):
             return
         # 其余按键：委托基类（打字/退格/移动光标/复制粘贴等）。
         await super()._on_key(event)
+
+    def _handle_tab(self) -> None:
+        if self._completer is None:
+            return
+        prefix = self._command_prefix()
+        if prefix is None:
+            return
+        cands = self._completer(self.text)
+        if not cands:
+            return
+        if len(cands) == 1:
+            self.apply_completion(cands[0])
+        else:
+            self.post_message(self.CompletionRequested(cands, prefix))

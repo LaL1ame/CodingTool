@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import inspect
 import os
 import time
 from collections.abc import Callable
@@ -18,7 +19,14 @@ from textual.widgets import Footer, Header, RichLog, Static, TextArea
 
 from codepilot.agent import Agent
 from codepilot.chat import ChatManager
-from codepilot.commands import parse_command
+from codepilot.commands import (
+    CommandContext,
+    StatusSnapshot,
+    build_registry,
+    dispatch_command,
+    make_completer,
+    parse_command,
+)
 from codepilot.modes import ModeState, ReleasePolicy, ToolAxis
 from codepilot.permissions.mode import PermissionMode
 from codepilot.permissions.policy import HumanChoice
@@ -56,6 +64,10 @@ class CodePilotApp(App):
         self._session_file = session_file
         self._auto_memory = auto_memory       # state13: done 后记忆调度回调
         self._memory_injector = memory_injector  # state13: /memory 展示用
+        # state14: 命令注册中心 + 界面控制接口 + Tab 补全(均框架无关,可注入/替换)
+        self._command_registry = build_registry()
+        self.command_ctx: CommandContext = _CommandContextImpl(self)
+        self.completer = make_completer(self._command_registry)
         self._chat: ChatManager | None = None
         self._streaming = False
         self._stream_start: float = 0.0
@@ -126,7 +138,7 @@ class CodePilotApp(App):
         yield Vertical(id="tools")      # 工具 gutter:持久追加
         yield Static("", id="stream")
         yield Static("Enter 发送 · Ctrl+J 换行 · 支持多行(可粘贴)  (/exit /plan /do)", id="prompt-hint")
-        yield PromptInput(id="prompt", soft_wrap=True)  # soft_wrap:长行折行自适应;height:auto 随内容长高(见 theme.tcss)
+        yield PromptInput(id="prompt", soft_wrap=True, completer=self.completer)  # soft_wrap:长行折行自适应;completer:Tab补全(state14)
         yield Footer()
         yield StatusBar()
 
@@ -143,6 +155,17 @@ class CodePilotApp(App):
             f"\n[dim]── 模式 → {policy.value}{ae_txt}[/dim]")
         self.query_one("#prompt", TextArea).clear()
 
+    def on_prompt_input_completion_requested(self, msg) -> None:
+        """Tab 多命中：弹补全菜单,选中后把 &lt;name&gt; 填回输入框(state14 F6)。"""
+        from codepilot.ui.screens import CompletionScreen
+
+        def on_pick(name: str) -> None:
+            inp = self.query_one("#prompt", TextArea)
+            if isinstance(inp, PromptInput):
+                inp.apply_completion(name)
+
+        self.push_screen(CompletionScreen(msg.candidates, on_pick))
+
     def on_prompt_input_submitted(self) -> None:
         """PromptInput 的 Submitted(PromptInput 内部 Enter 触发):读多行输入,清空,统一分发。"""
         if self._streaming or self._chat is None:
@@ -155,61 +178,51 @@ class CodePilotApp(App):
         self._submit(text)
 
     def _submit(self, text: str) -> None:
-        """命令解析 + 纯命令处理 / 对话分发。单一发送入口(当前仅 action_submit)。"""
-        command, rest = parse_command(text)
+        """分流器(state14):命令→本地分发 / 非命令→AI。单一发送入口。
 
-        # —— 纯模式/开关命令:不进入聊天循环 ——
-        if command == "exit":
-            self.exit()
+        四态:
+          blank   → 早返回
+          message → 交 AI(_start_ai)
+          unknown → 给 /help 引导(不送 AI)
+          command → dispatch_command;返回消息则转发 AI,否则本地处理完
+        """
+        pr = parse_command(text, self._command_registry)
+        if pr.kind == "blank":
             return
-        if command in ("mode", "auto", "manual", "strict"):
-            self._cmd_release(command, rest)
+        if pr.kind == "message":
+            self._start_ai(pr.text)
             return
-        if command == "edits":
-            self._cmd_edits(rest)
+        if pr.kind == "unknown":
+            self.query_one("#chat", RichLog).write(
+                "\n[dim]未知命令。输入 [bold]/help[/bold] 查看可用命令[/dim]")
             return
-        if command == "compact":
-            _log = self.query_one("#chat", RichLog)
-            if self._context_manager is None:
-                _log.write("\n[bold red]⚠ 上下文管理未启用[/bold red]")
-            else:
-                self.run_worker(self._cmd_compact(_log))
-            return
-        if command == "continue":
-            # F2/F5:续接上一轮达上限而暂停的循环,沿用同一 _msgs 续跑
-            self._streaming = True
-            self._stream_start = time.time()
-            self.set_interval(1, self._tick)
-            self.run_worker(self._process_chat("", resume=True), exclusive=False)
-            return
-        if command == "memory":
-            self._cmd_memory()
-            return
-        if command == "forget":
-            self._cmd_forget(rest)
-            return
-        if command == "plan":
-            self._set_axis(ToolAxis.PLAN, announce=True)
-            if not rest:
-                return
-            text = rest
-        elif command == "do":
-            self._set_axis(ToolAxis.BUILD, announce=True)
-            if not rest:
-                return
-            text = rest
 
+        out = dispatch_command(pr.spec, self.command_ctx, pr.params)
+        if out is None:
+            return
+        if inspect.isawaitable(out):
+            # 协程处理器(N4):run_worker 执行,内部若产出消息再转发
+            self.run_worker(self._finish_forward(out))
+        else:
+            self._start_ai(out)
+
+    def _start_ai(self, text: str) -> None:
+        """启动一轮对话:清输入、写 You、置流式、run_worker(_process_chat)。"""
         log = self.query_one("#chat", RichLog)
         inp = self.query_one("#prompt", TextArea)
         inp.disabled = True
-
         log.write(f"\n[bold green]❯ You[/bold green]  {text}")
         log.write("[bold]🤖 CodePilot[/bold] ")
-
         self._streaming = True
         self._stream_start = time.time()
         self.set_interval(1, self._tick)
         self.run_worker(self._process_chat(text), exclusive=False)
+
+    async def _finish_forward(self, coro) -> None:
+        """await 一个协程处理器;若经其产出消息则转发 AI。"""
+        out = await coro
+        if out:
+            self._start_ai(out)
 
     # —— 模式命令处理 ——
     def _apply_modes(self) -> None:
@@ -229,59 +242,68 @@ class CodePilotApp(App):
             self.query_one("#chat", RichLog).write(f"\n[dim]── 已切换：{label}[/dim]")
         self.query_one("#prompt", TextArea).clear()
 
-    def _cmd_release(self, command: str, rest: str) -> None:
-        if command == "mode":
-            name = (rest or "").strip().lower()
-            if name not in ("manual", "auto", "strict"):
-                self.query_one("#chat", RichLog).write(
-                    "\n[bold red]⚠ /mode 需 manual|auto|strict[/bold red]")
-                return
-        else:
-            name = command  # /manual /auto /strict
-        policy = ReleasePolicy(name)
+    def _chat_log(self) -> RichLog:
+        return self.query_one("#chat", RichLog)
+
+    def _set_release(self, policy: ReleasePolicy) -> None:
         self._mode_state.set_release(policy)
         self._apply_modes()
         self.query_one("#prompt", TextArea).clear()
-        self.query_one("#chat", RichLog).write(
-            f"\n[dim]── 放行策略 → {name}{'（未命中自动放行）' if name == 'auto' else ''}[/dim]")
+        tag = "（未命中自动放行）" if policy is ReleasePolicy.AUTO else ""
+        self._chat_log().write(f"\n[dim]── 放行策略 → {policy.value}{tag}[/dim]")
 
-    def _cmd_edits(self, rest: str) -> None:
-        arg = (rest or "").strip().lower()
-        if arg in ("on", "off"):
-            self._mode_state.toggle_accept_edits(arg == "on")
-        else:
-            self._mode_state.toggle_accept_edits()  # 无参 → 翻转
-        on = self._mode_state.accept_edits
+    def _set_accept_edits(self, on: bool | None = None) -> None:
+        self._mode_state.toggle_accept_edits(on)
         self._apply_modes()
         self.query_one("#prompt", TextArea).clear()
-        self.query_one("#chat", RichLog).write(
+        on = self._mode_state.accept_edits
+        self._chat_log().write(
             f"\n[dim]── Accept Edits → {'ON(自动应用 write/edit)' if on else 'OFF'}[/dim]")
 
-    def _cmd_memory(self) -> None:
-        """F6:/memory —— 分组展示当前注入的指令与记忆索引。"""
-        log = self.query_one("#chat", RichLog)
+    def _memory_report(self) -> str | None:
+        """F6:/memory —— 分组展示当前注入的指令与记忆索引;未启用返回 None。"""
         if self._memory_injector is None:
-            log.write("\n[dim]── 记忆系统未启用[/dim]")
-            return
+            return None
         blocks = self._memory_injector.build()
         if not blocks:
-            log.write("\n[dim]── 当前无指令文件、也无记忆笔记[/dim]")
-            return
-        log.write("\n[bold cyan]── 当前记忆 ──[/bold cyan]")
-        for b in blocks:
-            log.write("\n" + b)
-        self.query_one("#prompt", TextArea).clear()
+            return None
+        return "\n[bold cyan]── 当前记忆 ──[/bold cyan]\n" + "\n".join(blocks)
 
-    def _cmd_forget(self, rest: str) -> None:
-        """F6:/forget <关键词> —— 删除匹配的记忆条目,幂等。"""
-        log = self.query_one("#chat", RichLog)
-        store = getattr(self._memory_injector, "store", None)
-        if store is None or not rest:
-            log.write("\n[dim]── /forget 需配合已启用的记忆系统与关键词,用法: /forget 关键词[/dim]")
+    def _delete_memory(self, keyword: str) -> int:
+        return getattr(self._memory_injector, "store", None).delete(keyword) \
+            if self._memory_injector is not None else 0
+
+    def _clear_display(self) -> None:
+        """/clear:清空屏显示(RichLog),保留会话历史与上下文。"""
+        self.query_one("#chat", RichLog).clear()
+
+    def _snapshot(self) -> StatusSnapshot:
+        cfg = self._agent._provider.config
+        axis, release, ae = self._mode_summary()
+        axis_label = "DEFAULT" if axis == "build" else "PLAN"
+        return StatusSnapshot(
+            axis_label=axis_label, release=release, accept_edits=ae, model=cfg.model,
+            tokens_in=self._tokens_in, tokens_out=self._tokens_out,
+            ctx_usage=(self._context_manager.current_usage_text()
+                       if self._context_manager is not None else ""),
+            elapsed_s=max(0.0, time.time() - self._stream_start) if self._stream_start else 0.0,
+            session_file=self._session_file,
+        )
+
+    def _run_compact(self) -> None:
+        """触发异步压缩(编排 run_worker,不阻塞)。"""
+        log = self._chat_log()
+        if self._context_manager is None:
+            log.write("\n[bold red]⚠ 上下文管理未启用[/bold red]")
             return
-        n = store.delete(rest)
-        log.write(f"\n[green]── 已删除 {n} 条记忆条目[/green]")
-        self.query_one("#prompt", TextArea).clear()
+        self.run_worker(self._cmd_compact(log))
+
+    def _run_resume(self) -> None:
+        """/continue:续接达上限而暂停的循环,沿用同一 _msgs 续跑(state10 F5)。"""
+        self._streaming = True
+        self._stream_start = time.time()
+        self.set_interval(1, self._tick)
+        self.run_worker(self._process_chat("", resume=True), exclusive=False)
 
     async def _cmd_compact(self, log) -> None:
         """F6.1 手动压缩:强制生成摘要并改写历史。"""
@@ -429,12 +451,13 @@ class CodePilotApp(App):
     def _refresh_status(self) -> None:
         cfg = self._agent._provider.config
         axis, release, ae = self._mode_summary()
+        axis_label = "DEFAULT" if axis == ToolAxis.BUILD.value else "PLAN"
         sb = self.query_one(StatusBar)
         ctx_usage = (self._context_manager.current_usage_text()
                      if self._context_manager is not None else "")
         sb.update_state(
-            axis=axis, release=release, accept_edits=ae, model=cfg.model,
-            tokens=self._tokens_in + self._tokens_out,
+            axis=axis, axis_label=axis_label, release=release, accept_edits=ae,
+            model=cfg.model, tokens=self._tokens_in + self._tokens_out,
             elapsed_s=max(0.0, time.time() - self._stream_start) if self._stream_start else 0.0,
             ctx_usage=ctx_usage,
         )
@@ -471,3 +494,49 @@ class CodePilotApp(App):
         if len(lines) == 1 and len(output) <= 60:
             return output
         return f"{len(lines)} lines"
+
+
+class _CommandContextImpl(CommandContext):
+    """把 CommandContext 协议映射到具体渲染框架(Textual)的实现 —— state14 F4。
+
+    命令实现只认协议;本类是换渲染框架时唯一需要重写的一处。
+    """
+
+    def __init__(self, app: CodePilotApp) -> None:
+        self._app = app
+
+    def show(self, message: str) -> None:
+        self._app._chat_log().write("\n" + message)
+
+    def submit_to_ai(self, text: str) -> None:
+        self._app._start_ai(text)
+
+    def set_axis(self, axis: ToolAxis, *, announce: bool = False) -> None:
+        self._app._set_axis(axis, announce)
+
+    def set_release(self, policy: ReleasePolicy) -> None:
+        self._app._set_release(policy)
+
+    def set_accept_edits(self, on: bool | None = None) -> None:
+        self._app._set_accept_edits(on)
+
+    def compact(self) -> None:
+        self._app._run_compact()
+
+    def resume_loop(self) -> None:
+        self._app._run_resume()
+
+    def delete_memory(self, keyword: str) -> int:
+        return self._app._delete_memory(keyword)
+
+    def memory_report(self) -> str | None:
+        return self._app._memory_report()
+
+    def clear_display(self) -> None:
+        self._app._clear_display()
+
+    def snapshot(self) -> StatusSnapshot:
+        return self._app._snapshot()
+
+    def exit_app(self) -> None:
+        self._app.exit()

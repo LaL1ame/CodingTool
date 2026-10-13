@@ -96,3 +96,22 @@ PermissionScreen #confirm-box {
 #confirm-hint {
     color: #8888a0;
 }
+
+/* —— 命令补全屏(state14) —— */
+CompletionScreen #completion-box {
+    border: round $accent;
+    padding: 1 2;
+    background: #1e1e26;
+    color: #d0d0d8;
+    align: center middle;
+}
+#completion-title {
+    color: #ffd479;
+    text-style: bold;
+}
+#completion-list {
+    height: auto;
+    max-height: 12;
+    border: round $accent;
+    background: #26262e;
+}
