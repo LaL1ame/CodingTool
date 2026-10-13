@@ -6,7 +6,14 @@
 
 ---
 
-## 最近一次更新：2026-10-12
+## 最近一次更新：2026-10-13
+
+### state13（开发完成，端到端真机验证通过，剩一项 TUI 观感终验）
+**state13：项目指令 + 自动记忆 + 注入**（`docs/state13-memory/`）
+- **状态：T1-T8 全部实现，308 测试绿。端到端真机链路全跑通**（自动记忆沉淀 +1 / `/forget` 删1再删0幂等 / 注入可见 / 边界无副作用）；只剩 checklist 场景1「模型按 .rules 指令风格回复」的 TUI 观感项待用户终验。
+- **指令目录改名 `.mewcode → .rules` 已完成并提交**（避开机器 `.codepilot/` 前缀混淆）：`.rules/general.md` 手写版本已入 git（收录三条项目约定——尾附验收清单 / 中文 Conventional Commit / 4空格缩进）；`resolver.py` 已同步。
+- 新会话上手：读本文 + `docs/state13-memory/{spec,plan,task,checklist}.md` 即可完整恢复上下文。
+- 验收证据：`screenshot/改名后memory.png`（`.rules` 改名后 `/memory` 分组渲染实拍）已随本提交入 git。
 
 ### state12（已验收通过）
 **state12：会话恢复韧性**（`docs/state12-session-restore/spec.md`）
@@ -25,17 +32,6 @@
 - **可观测性（真机验收时补）**：`restore_chat` 打 `restore <file>: N msgs (dangling_cut/M)`、`_pick_session` 打 `新开会话`/`过期清理删 N`——恢复可从 logs/codepilot.log 自证，非「感觉没问题」。
 - 文件：`session/store.py`,`session/restore.py`(新),`chat.py`,`context/manager.py`,`main.py`,`ui/app.py`,`config.py`,`config.example.yaml`,`tests/test_restore.py`(新)。
 - 阶段六验收通过（用户实机确认）：`-c`/`--resume` 还原见对话可回滚、`--new` 空白、无崩溃；恢复日志已自证。下一阶段 state13(指令+自动记忆)见下。
-
-### state13（开发完成，验收基本通过）
-**state13：项目指令 + 自动记忆 + 注入**（`docs/state13-memory/`）
-- **状态：T1-T8 全部实现，308 测试绿（274 既有 + 34 新增），端到端真机验证通过（自动记忆 + /forget 链路用真实 API 跑通：natural done → +1 笔记落盘 → /forget 删 1 → 幂等 0）**。剩 TUI 观感项(指令风格响应)待用户终验。
-- 三层指令文件：`resolver.py` 发现 `.rules/` 项目根+递归子目录+用户级 `~/.rules/`，按深度升序拼接；`@include` 限深 4 / visited 防环 / 同树逃逸拦截。
-- 四类自动笔记：`store.py` 偏好/纠正→用户级、项目知识/资料→项目级，分 `~/.codepilot/memory` 与 `~/.codepilot/projects/<sha1>/memory` 落盘；`auto.py` 每轮 done 后后台异步 LLM 压缩写回(fire-and-forget，复用 `provider.complete`)。
-- 注入：`inject.py MemoryInjector` 把指令+记忆索引(prompt/builder 的 volatile 尾块)拼进每轮 system prompt，≤200 行/25KB；`agent` 只拿不透明 `memory_injector` 回调，低耦合。
-- 命令：`/memory` 分组展示（【项目指令】/【记忆】）、`/forget 词` 删自动笔记(幂等)。
-- **边界(已写进 spec「不做的事」)**：`/forget` 只删自动笔记；手写 `.rules` 指令用户手动改文件删，两者删除路径刻意分开（源文件 vs 派生缓存）。
-- **测试关键：触发自动记忆要用「普通问答→自然收尾」，不是明说「记住」**（后者会走 Agent 代写 .rules，不 done 也不沉淀）。
-- 明确不做：向量库/RAG/团队同步/记忆自动过期。
 
 ### state11（已验收通过）
 **state11：TUI 多行输入**（`docs/state11-multiline-input/`）
