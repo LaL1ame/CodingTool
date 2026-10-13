@@ -23,6 +23,7 @@ from codepilot.providers import BaseProvider
 from codepilot.agent import Agent
 from codepilot.mcp import McpManager
 from codepilot.tools import ToolRegistry, ReadTool, WriteTool, EditTool, GlobTool, GrepTool, RunTool
+from codepilot import skills as _skills
 from codepilot.ui.app import CodePilotApp
 
 
@@ -170,11 +171,22 @@ def main() -> None:
             auto.schedule(provider, memory.store, msgs)
         auto_memory_cb = _auto_memory
 
+    # —— Skill 系统(state15):三级加载 + 系统级 load_skill 工具 + 两阶段注入 ——
+    skill_manager = _skills.SkillManager(
+        _skills.load_all(workspace,
+                         user_root=Path.home() / ".skills",
+                         builtin_root=_skills.BUILTIN_DIR,
+                         check_tools=lambda n: registry.get(n) is not None),
+    )
+    registry.register(_skills.LoadSkillTool(skill_manager))  # 系统工具,不受白名单约束
+
     agent = Agent(provider=provider, registry=registry, workspace=workspace,
                   max_rounds=agent_config.max_rounds, max_unknown=agent_config.max_unknown,
                   env=env, refresh_every=agent_config.prompt_refresh_every,
                   permission=permission, context_manager=context_manager,
-                  memory_injector=memory.build)
+                  memory_injector=memory.build,
+                  skill_injector=skill_manager.skill_blocks,
+                  skill_whitelist=skill_manager.active_whitelist)
 
     # —— 会话 resume(state12)：-c 续最近 / -r 列表选择 / --new 强制新开;
     #    默认按 session.auto_resume 自动接最近。恢复走 restore_chat(截断/提醒),
@@ -201,7 +213,8 @@ def main() -> None:
                        context_manager=context_manager,
                        seed_msgs=restored.get("messages"),
                        auto_memory=auto_memory_cb,
-                       memory_injector=memory)
+                       memory_injector=memory,
+                       skill_manager=skill_manager)
 
     # —— MCP:启动时连接并注册工具。必须与 App 同一事件循环——
     # app.run() 内部会自开一个 loop;若先用另一段 asyncio.run 连接 stdio/http

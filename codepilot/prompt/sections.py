@@ -17,6 +17,17 @@ class Section:
 
 # 特殊标签：标识 system 尾块里的会话级指令，避免被当作用户输入。
 SESSION_TAG = "session_instruction"
+# Skill 专用标签：区分「可复用技能」指令与普通会话指令/记忆（state15）。
+SKILL_TAG = "skill_instruction"
+
+
+def format_skills(name_pairs: list[tuple[str, str]]) -> str:
+    """格式化「可用技能」块：逐条 `名字 — 说明`。name_pairs 为 (name, description) 序列。"""
+    if not name_pairs:
+        return "当前没有可用技能。"
+    lines = ["# 可复用技能（Skill），需要时可调用 load_skill 加载完整指令", ""]
+    lines += [f"- {name} — {desc}" for name, desc in name_pairs]
+    return "\n".join(lines)
 
 
 # ── 7 个固定模块，按优先级 0..6 ──────────────────────────────

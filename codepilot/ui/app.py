@@ -21,6 +21,8 @@ from codepilot.agent import Agent
 from codepilot.chat import ChatManager
 from codepilot.commands import (
     CommandContext,
+    CommandKind,
+    CommandSpec,
     StatusSnapshot,
     build_registry,
     dispatch_command,
@@ -28,6 +30,8 @@ from codepilot.commands import (
     parse_command,
 )
 from codepilot.modes import ModeState, ReleasePolicy, ToolAxis
+from codepilot.providers import BaseProvider
+from codepilot.skills import BUILTIN_DIR as _SKILL_BUILTIN_DIR
 from codepilot.permissions.mode import PermissionMode
 from codepilot.permissions.policy import HumanChoice
 from codepilot.ui.widgets import PromptInput, StatusBar, ToolRow
@@ -52,10 +56,13 @@ class CodePilotApp(App):
              initial_modes: dict | None = None, context_manager=None,
              seed_msgs: list | None = None,
              auto_memory: Callable[[list[dict]], None] | None = None,
-             memory_injector=None) -> None:
+             memory_injector=None,
+             skill_manager=None) -> None:
         super().__init__()
         self._agent = agent
         self._context_manager = context_manager
+        # state15: Skill 管理器(装配命令注册 + isolated 编排 + /clear 联动)。
+        self._skill_manager = skill_manager
         self._mode_state = ModeState(release=ReleasePolicy(release))
         if initial_modes:
             self._mode_state.restore(initial_modes)
@@ -68,6 +75,11 @@ class CodePilotApp(App):
         self._command_registry = build_registry()
         self.command_ctx: CommandContext = _CommandContextImpl(self)
         self.completer = make_completer(self._command_registry)
+        # state15: 把「加载 Skill 时」动态注册命令的回调接到本 App 注册中心;
+        # 启动即注册内置 Skill 的命令(开箱即用)。
+        if self._skill_manager is not None:
+            self._skill_manager._on_register_command = self._register_skill_command
+            self._register_builtin_skill_commands()
         self._chat: ChatManager | None = None
         self._streaming = False
         self._stream_start: float = 0.0
@@ -274,8 +286,74 @@ class CodePilotApp(App):
             if self._memory_injector is not None else 0
 
     def _clear_display(self) -> None:
-        """/clear:清空屏显示(RichLog),保留会话历史与上下文。"""
+        """/clear:清空屏显示(RichLog),保留会话历史与上下文。
+        同时联动复位已激活的 Skill(激活态+白名单),但保留已注册的 skill 命令(state15)。"""
         self.query_one("#chat", RichLog).clear()
+        if self._skill_manager is not None:
+            self._skill_manager.deactivate_all()
+            self._refresh_status()
+
+    # —— state15: Skill 命令注册与 isolated 编排 ——
+    def _register_skill_command(self, name: str, handler) -> None:
+        """把 Skill 的命令注册进命令注册中心(加载/内置均走此,replace 覆盖热更新)。"""
+        skill = self._skill_manager.require(name)
+        spec = CommandSpec(
+            name=skill.name,
+            kind=CommandKind.LOCAL if skill.mode == "isolated" else CommandKind.UI,
+            desc=skill.description,
+            handler=handler,
+            usage=f"/{skill.name} [参数]",
+            arg_hint=skill.params_desc or None,
+        )
+        self._command_registry.register(spec, replace=True)
+
+    def _register_builtin_skill_commands(self) -> None:
+        """启动即注册内置 Skill 的命令(开箱即用);用户/项目 Skill 在 load 时注册。"""
+        if self._skill_manager is None:
+            return
+        for name, skill in self._skill_manager.known.items():
+            if skill.path is not None and skill.path.is_relative_to(_SKILL_BUILTIN_DIR):
+                self._register_skill_command(name, self._skill_manager.command_handler(name))
+
+    async def _run_isolated_skill(self, skill, params: str) -> None:
+        """独立模式:开一段独立 Agent 循环跑完,只把结论/摘要回流主对话。
+
+        内部历史不污染主对话 _msgs;按 skill.bring_history 带入最近 N 条为背景;
+        skill.model 可覆盖独立对话的模型(缺省沿用当前)。
+        """
+        log = self._chat_log()
+        if self._chat is None:
+            return
+        skill_name = getattr(skill, "name", "skill")
+        try:
+            msgs = self._chat.build_context()
+            bring = int(getattr(skill, "bring_history", 0) or 0)
+            slice_msgs = list(msgs[-bring:]) if bring else []
+            provider = getattr(self._agent, "_provider", None)
+            want_model = getattr(skill, "model", None)
+            if provider is not None and want_model \
+                    and want_model != getattr(provider.config, "model", None):
+                from dataclasses import replace as _replace
+                provider = BaseProvider.create(_replace(provider.config, model=want_model))
+            sub = Agent(
+                provider=provider, registry=self._agent._registry,
+                workspace=getattr(self._agent, "_workspace", None),
+                env=getattr(self._agent, "_env", None),
+                skill_injector=(lambda sk=skill: [sk.body]),
+                skill_whitelist=(lambda sk=skill: set(sk.tools) or None),
+                refresh_every=0, plan_mode=False, stall_enabled=False,
+            )
+            chunks: list[str] = []
+            async for d in sub.run(slice_msgs):
+                if d.error:
+                    log.write(f"\n[bold red]❌ {skill_name} 失败[/bold red]  {d.error}")
+                    return
+                if d.text:
+                    chunks.append(d.text)
+            summary = "".join(chunks).strip() or "(无输出)"
+            log.write(f"\n[bold cyan]── {skill_name} 结果(独立对话) ──[/bold cyan]\n{summary}")
+        except Exception as e:
+            log.write(f"\n[bold red]❌ {skill_name} 执行异常[/bold red]  {e}")
 
     def _snapshot(self) -> StatusSnapshot:
         cfg = self._agent._provider.config
@@ -540,3 +618,8 @@ class _CommandContextImpl(CommandContext):
 
     def exit_app(self) -> None:
         self._app.exit()
+
+    def run_isolated_skill(self, skill, params: str) -> None:
+        """state15: 独立模式 —— 开独立对话跑完回流摘要(App 端编排 worker)。"""
+        self._app.run_worker(
+            self._app._run_isolated_skill(skill, params), exclusive=False)

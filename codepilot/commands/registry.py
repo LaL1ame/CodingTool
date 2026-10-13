@@ -52,18 +52,37 @@ class CommandRegistry:
         self._specs: list[CommandSpec] = []
         self._by_token: dict[str, CommandSpec] = {}
 
-    def register(self, spec: CommandSpec) -> None:
-        """登记一条命令;name/任一 alias 与已注册者撞名即抛 `CommandConflictError`。"""
-        for token in (spec.name, *spec.aliases):
-            existing = self._by_token.get(token)
-            if existing is not None:
-                raise CommandConflictError(
-                    f"命令大小写不敏感名 '{token}' 已被 {existing.name} 占用"
-                    f"(新命令 {spec.name} 无法登记)"
-                )
+    def register(self, spec: CommandSpec, *, replace: bool = False) -> None:
+        """登记一条命令;name/任一 alias 与已注册者撞名即抛 `CommandConflictError`。
+
+        `replace=True` 时,若 name/alias 撞现有命令,先移除被撞的旧 spec 再登记——
+        供「热更新重注册同名」与「Skill 命令覆盖内置」使用(动态路径;启动期 `assert_no_conflicts`
+        的严格校验语义不变)。
+        """
+        if replace:
+            conflicts = {self._by_token[t] for t in (spec.name, *spec.aliases)
+                         if t in self._by_token}
+            for old in conflicts:
+                self._remove(old)
+        else:
+            for token in (spec.name, *spec.aliases):
+                existing = self._by_token.get(token)
+                if existing is not None:
+                    raise CommandConflictError(
+                        f"命令大小写不敏感名 '{token}' 已被 {existing.name} 占用"
+                        f"(新命令 {spec.name} 无法登记)"
+                    )
         self._specs.append(spec)
         for token in (spec.name, *spec.aliases):
             self._by_token[token] = spec
+
+    def _remove(self, spec: CommandSpec) -> None:
+        """从注册表移除一个 spec 及它的全部 token(供 replace 用)。"""
+        if spec in self._specs:
+            self._specs.remove(spec)
+        for token in (spec.name, *spec.aliases):
+            if self._by_token.get(token) is spec:
+                del self._by_token[token]
 
     def resolve(self, token: str) -> CommandSpec | None:
         """小写后精确匹配名称或别名,返回 spec 或 None。"""

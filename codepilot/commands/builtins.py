@@ -167,8 +167,7 @@ def build_registry() -> CommandRegistry:
         )
     _register("permission", CommandKind.UI, "显示当前权限模式与自动编辑状态", h_permission)
 
+    # state15: /review 命令已移交内置 review Skill（统一入口）。旧 PROMPT 载荷
+    # 并入 codepilot/skills/data/review/SKILL.md 正文；REVIEW_PROMPT 保留仅向后兼容。
     # —— PROMPT: 预设提示词送 AI ——
-    _register("review", CommandKind.PROMPT, "把审查当前改动提示词送 AI",
-              lambda ctx, params: REVIEW_PROMPT)
-
     return r

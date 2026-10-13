@@ -87,6 +87,8 @@ class Agent:
         permission: PermissionManager | None = None,
         context_manager=None,
         memory_injector: Callable[[], list[str]] | None = None,
+        skill_injector: Callable[[], list[str]] | None = None,
+        skill_whitelist: Callable[[], set[str] | None] | None = None,
         stall_enabled: bool = True,
         stall_repeat_k: int = 2,
         stall_window: int = 3,
@@ -105,6 +107,10 @@ class Agent:
         # state13:可选记忆注入器,每轮产出 volatile 尾块(指令+索引)。Agent 只
         # 把他当「不透明 volatile 块」,不感知记忆内部 → 低耦合。
         self._memory_injector = memory_injector
+        # state15:可选项技能注入器(阶段一名册+激活钉住)与白名单回调(收窄工具)。
+        # 同样是「不透明 volatile 块 / 工具名集合回调」,Agent 不感知 skill 内部。
+        self._skill_injector = skill_injector
+        self._skill_whitelist = skill_whitelist
         self._plan_mode = False
         self._stall_enabled = stall_enabled
         self._stall_msg = stall_msg
@@ -129,13 +135,22 @@ class Agent:
             task.cancel()
 
     def _build_tools(self) -> list[dict] | None:
-        tools = self._registry.list_read_only() if self._plan_mode else self._registry.list_all()
-        if not tools:
+        # state15: 可见工具 = 全量 ∩(白名单∪系统工具) ∩(plan仅只读)。
+        all_tools = self._registry.list_all()
+        if self._skill_whitelist is not None:
+            wl = self._skill_whitelist()
+            if wl is not None:
+                # 白名单收窄：只留白名单内 + 系统级工具（逃生门，恒可见）
+                all_tools = [t for t in all_tools
+                             if t.name in wl or t.system_exempt]
+        if self._plan_mode:
+            all_tools = [t for t in all_tools if not t.side_effect]
+        if not all_tools:
             return None
         if self._protocol == "anthropic":
-            return self._registry.to_anthropic_tools(tools)
+            return self._registry.to_anthropic_tools(all_tools)
         else:
-            return self._registry.to_openai_tools(tools)
+            return self._registry.to_openai_tools(all_tools)
 
     async def run(self, messages: list[dict]) -> AsyncIterator[Delta]:
         self._cancel_event.clear()  # 重置取消标志，确保新循环不受上次取消影响
@@ -148,12 +163,14 @@ class Agent:
 
             # —— 每轮重建分层系统提示（稳定前缀 + 动态尾块）——
             memory_blocks = self._memory_injector() if self._memory_injector else []
+            skill_blocks = self._skill_injector() if self._skill_injector else []
             sp = build_system_prompt(
                 self._env or EnvContext(cwd=str(self._workspace), date=""),
                 plan_mode=self._plan_mode,
                 round_num=round_num,
                 refresh_every=self._refresh_every,
                 memory_blocks=memory_blocks,
+                skill_blocks=skill_blocks,
             )
             if self._plan_mode:
                 n_plan = sum(1 for b in sp.volatile if "session_instruction" in b)
