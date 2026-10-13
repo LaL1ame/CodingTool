@@ -10,8 +10,8 @@ from pathlib import Path
 from codepilot.chat import Message
 from codepilot.config import (
     ConfigError, load_agent_config, load_config, load_context_config,
-    load_log_config, load_mcp_config, load_permissions_config,
-    load_session_config,
+    load_log_config, load_mcp_config, load_memory_config,
+    load_permissions_config, load_session_config,
 )
 from codepilot.context import ContextManager
 from codepilot.logging_setup import setup_logging
@@ -160,10 +160,21 @@ def main() -> None:
         provider=provider, config=ctx_config,
         offload_dir=workspace / ".codepilot" / "context",
     )
+    # —— 长期记忆(state13):指令文件 + 自动笔记 + 注入 ——
+    memory_cfg = load_memory_config(path)
+    from codepilot.memory import MemoryInjector, NoteStore, auto
+    memory = MemoryInjector(workspace, store=NoteStore(workspace))
+    auto_memory_cb = None
+    if memory_cfg.auto_memory:
+        def _auto_memory(msgs: list[dict]) -> None:
+            auto.schedule(provider, memory.store, msgs)
+        auto_memory_cb = _auto_memory
+
     agent = Agent(provider=provider, registry=registry, workspace=workspace,
                   max_rounds=agent_config.max_rounds, max_unknown=agent_config.max_unknown,
                   env=env, refresh_every=agent_config.prompt_refresh_every,
-                  permission=permission, context_manager=context_manager)
+                  permission=permission, context_manager=context_manager,
+                  memory_injector=memory.build)
 
     # —— 会话 resume(state12)：-c 续最近 / -r 列表选择 / --new 强制新开;
     #    默认按 session.auto_resume 自动接最近。恢复走 restore_chat(截断/提醒),
@@ -188,7 +199,9 @@ def main() -> None:
                        session_file=str(session_path),
                        initial_modes=loaded.get("mode") if loaded else None,
                        context_manager=context_manager,
-                       seed_msgs=restored.get("messages"))
+                       seed_msgs=restored.get("messages"),
+                       auto_memory=auto_memory_cb,
+                       memory_injector=memory)
 
     # —— MCP:启动时连接并注册工具。必须与 App 同一事件循环——
     # app.run() 内部会自开一个 loop;若先用另一段 asyncio.run 连接 stdio/http

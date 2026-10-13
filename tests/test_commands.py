@@ -31,6 +31,16 @@ def test_continue_alone():
     assert parse_command("/continue") == ("continue", "")
 
 
+def test_memory_alone():
+    assert parse_command("/memory") == ("memory", "")
+
+
+def test_forget_with_keyword():
+    assert parse_command("/forget vim") == ("forget", "vim")
+    assert parse_command("/forget  vim 键位 ") == ("forget", "vim 键位")
+    assert parse_command("/forget") == ("forget", "")
+
+
 def test_plain_message_is_not_command():
     assert parse_command("帮我写个文件") == (None, "帮我写个文件")
 

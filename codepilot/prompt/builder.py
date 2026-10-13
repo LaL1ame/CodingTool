@@ -3,6 +3,7 @@
 限职责：组装。序列化交给协议层，按轮注入交给 agent 循环。
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from codepilot.prompt.sections import (
@@ -53,9 +54,15 @@ def build_system_prompt(
     plan_mode: bool,
     round_num: int,
     refresh_every: int,
+    memory_blocks: Sequence[str] = (),
 ) -> SystemPrompt:
-    """生成当前轮的分层系统提示。"""
+    """生成当前轮的分层系统提示。
+
+    memory_blocks: state13 长期记忆的 volatile 块(指令+索引),追加在动态尾块末位。
+    可空,缺省行为等价既有无记忆的构建。
+    """
     stable = [s.content for s in sorted(FIXED_SECTIONS, key=lambda s: s.priority)]
     volatile = [format_env(env.cwd, env.date)]
     volatile.extend(_plan_blocks(plan_mode, round_num, refresh_every))
+    volatile.extend(memory_blocks)
     return SystemPrompt(stable=stable, volatile=volatile)

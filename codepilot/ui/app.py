@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Callable
 
 from textual.app import App, ComposeResult
 from textual.containers import Vertical
@@ -41,7 +42,9 @@ class CodePilotApp(App):
     def __init__(self, agent: Agent, release: str = "manual",
              history: list | None = None, session_file: str | None = None,
              initial_modes: dict | None = None, context_manager=None,
-             seed_msgs: list | None = None) -> None:
+             seed_msgs: list | None = None,
+             auto_memory: Callable[[list[dict]], None] | None = None,
+             memory_injector=None) -> None:
         super().__init__()
         self._agent = agent
         self._context_manager = context_manager
@@ -51,6 +54,8 @@ class CodePilotApp(App):
         self._history = history
         self._seed_msgs = seed_msgs   # state12: 恢复回灌的完整 LLM 序列(含工具调用)
         self._session_file = session_file
+        self._auto_memory = auto_memory       # state13: done 后记忆调度回调
+        self._memory_injector = memory_injector  # state13: /memory 展示用
         self._chat: ChatManager | None = None
         self._streaming = False
         self._stream_start: float = 0.0
@@ -63,7 +68,8 @@ class CodePilotApp(App):
     def on_mount(self) -> None:
         self._chat = ChatManager(self._agent, history=self._history,
                                  session_file=self._session_file,
-                                 msgs=self._seed_msgs)
+                                 msgs=self._seed_msgs,
+                                 auto_memory=self._auto_memory)
         # 注入上下文管理器:绑定 chat + 注入 agent(层1拦截/usage锚点)
         if self._context_manager is not None:
             self._context_manager.attach_chat(self._chat)
@@ -176,6 +182,12 @@ class CodePilotApp(App):
             self.set_interval(1, self._tick)
             self.run_worker(self._process_chat("", resume=True), exclusive=False)
             return
+        if command == "memory":
+            self._cmd_memory()
+            return
+        if command == "forget":
+            self._cmd_forget(rest)
+            return
         if command == "plan":
             self._set_axis(ToolAxis.PLAN, announce=True)
             if not rest:
@@ -244,6 +256,32 @@ class CodePilotApp(App):
         self.query_one("#prompt", TextArea).clear()
         self.query_one("#chat", RichLog).write(
             f"\n[dim]── Accept Edits → {'ON(自动应用 write/edit)' if on else 'OFF'}[/dim]")
+
+    def _cmd_memory(self) -> None:
+        """F6:/memory —— 分组展示当前注入的指令与记忆索引。"""
+        log = self.query_one("#chat", RichLog)
+        if self._memory_injector is None:
+            log.write("\n[dim]── 记忆系统未启用[/dim]")
+            return
+        blocks = self._memory_injector.build()
+        if not blocks:
+            log.write("\n[dim]── 当前无指令文件、也无记忆笔记[/dim]")
+            return
+        log.write("\n[bold cyan]── 当前记忆 ──[/bold cyan]")
+        for b in blocks:
+            log.write("\n" + b)
+        self.query_one("#prompt", TextArea).clear()
+
+    def _cmd_forget(self, rest: str) -> None:
+        """F6:/forget <关键词> —— 删除匹配的记忆条目,幂等。"""
+        log = self.query_one("#chat", RichLog)
+        store = getattr(self._memory_injector, "store", None)
+        if store is None or not rest:
+            log.write("\n[dim]── /forget 需配合已启用的记忆系统与关键词,用法: /forget 关键词[/dim]")
+            return
+        n = store.delete(rest)
+        log.write(f"\n[green]── 已删除 {n} 条记忆条目[/green]")
+        self.query_one("#prompt", TextArea).clear()
 
     async def _cmd_compact(self, log) -> None:
         """F6.1 手动压缩:强制生成摘要并改写历史。"""

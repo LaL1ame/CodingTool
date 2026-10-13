@@ -182,6 +182,30 @@ def load_session_config(path: str | Path) -> SessionConfig:
 
 
 @dataclass
+class MemoryConfig:
+    """长期记忆(state13)运行时配置。
+
+    auto_memory: 每轮自然停后是否后台自动提炼笔记(默认开;关掉则只保留
+                 指令文件注入与 /memory /forget 手动管理)。
+    """
+    auto_memory: bool = True
+
+
+def load_memory_config(path: str | Path) -> MemoryConfig:
+    """读取可选 memory: 段。文件缺失或无该段时用默认值。"""
+    path = Path(path)
+    if not path.exists():
+        return MemoryConfig()
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw = yaml.safe_load(f)
+    except yaml.YAMLError:
+        return MemoryConfig()
+    entry = (raw or {}).get("memory") or {}
+    return MemoryConfig(auto_memory=bool(entry.get("auto_memory", True)))
+
+
+@dataclass
 class McpServerSpec:
     """一条 MCP server 声明(合并两层 config 后)。
 

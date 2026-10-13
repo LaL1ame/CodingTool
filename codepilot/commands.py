@@ -35,4 +35,8 @@ def parse_command(text: str) -> tuple[str | None, str]:
         return ("compact", "")
     if first == "/continue":
         return ("continue", "")
+    if first == "/memory":
+        return ("memory", "")
+    if first == "/forget":
+        return ("forget", rest.strip())
     return (None, text)

@@ -1,7 +1,7 @@
 """对话管理层：Message + ChatManager。"""
 
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,10 +20,13 @@ class Message:
 class ChatManager:
     def __init__(self, agent: Agent, history: list[Message] | None = None,
                  session_file: str | Path | None = None,
-                 msgs: list[dict] | None = None) -> None:
+                 msgs: list[dict] | None = None,
+                 auto_memory: Callable[[list[dict]], None] | None = None) -> None:
         self.agent = agent
         self.history: list[Message] = list(history) if history else []
         self.session_file = Path(session_file) if session_file else None
+        # state13:自然停(done)后的记忆调度回调;接收 _msgs 快照,内部 fire-and-forget。
+        self._auto_memory = auto_memory
         # F0:持久化的完整 LLM 消息序列（协议原生 dict）。
         # agent.run 原地向上追加助手消息与工具结果；跨 send_message 调用保持同一
         # 对象 → 工具结果跨轮存活,且 tool_use/tool_result 的 id 天然配对。
@@ -71,6 +74,11 @@ class ChatManager:
         agent 每轮按协议串行化注入）。返回同一 _msgs 对象 → run 原地追加即持久。
         """
         return self._msgs
+
+    def _maybe_auto_memory(self) -> None:
+        """自然停(done)后触发自动记忆(state13):传 _msgs 快照,由回调内部后台写。"""
+        if self._auto_memory is not None:
+            self._auto_memory(self._msgs[:])  # 快照,避免与后续增量竞态
 
     async def send_message(self, content: str, *, resume: bool = False) -> AsyncIterator[Delta]:
         """发送一条 user 消息并驱动 agent 循环。
@@ -128,6 +136,7 @@ class ChatManager:
                     elapsed = time.time() - started
                     self.history.append(Message(role="assistant", content="".join(full), duration=elapsed))
                     self._record("assistant", "".join(full), duration=elapsed)
+                    self._maybe_auto_memory()
                     yield d
                     return
         except Exception as e:
@@ -138,4 +147,5 @@ class ChatManager:
             elapsed = time.time() - started
             self.history.append(Message(role="assistant", content="".join(full), duration=elapsed))
             self._record("assistant", "".join(full), duration=elapsed)
+            self._maybe_auto_memory()
             yield Delta(done=True)

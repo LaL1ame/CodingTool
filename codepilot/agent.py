@@ -3,7 +3,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
 from codepilot.permissions import PermissionManager
@@ -86,6 +86,7 @@ class Agent:
         refresh_every: int = 3,
         permission: PermissionManager | None = None,
         context_manager=None,
+        memory_injector: Callable[[], list[str]] | None = None,
         stall_enabled: bool = True,
         stall_repeat_k: int = 2,
         stall_window: int = 3,
@@ -101,6 +102,9 @@ class Agent:
         self._refresh_every = refresh_every
         self._permission = permission
         self._context_manager = context_manager  # 可选注入(层1压缩,state9)
+        # state13:可选记忆注入器,每轮产出 volatile 尾块(指令+索引)。Agent 只
+        # 把他当「不透明 volatile 块」,不感知记忆内部 → 低耦合。
+        self._memory_injector = memory_injector
         self._plan_mode = False
         self._stall_enabled = stall_enabled
         self._stall_msg = stall_msg
@@ -143,11 +147,13 @@ class Agent:
             self._logger.info("round %d/%d start", round_num, self._max_rounds)
 
             # —— 每轮重建分层系统提示（稳定前缀 + 动态尾块）——
+            memory_blocks = self._memory_injector() if self._memory_injector else []
             sp = build_system_prompt(
                 self._env or EnvContext(cwd=str(self._workspace), date=""),
                 plan_mode=self._plan_mode,
                 round_num=round_num,
                 refresh_every=self._refresh_every,
+                memory_blocks=memory_blocks,
             )
             if self._plan_mode:
                 n_plan = sum(1 for b in sp.volatile if "session_instruction" in b)

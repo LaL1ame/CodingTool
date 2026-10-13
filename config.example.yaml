@@ -40,3 +40,8 @@ session:
                               # 显式 -c/--resume 始终接最近，不受此开关影响。
   gap_hours: 24               # 距上次会话超多少小时,恢复时插入时间跨度提醒(0=关闭)
   max_age_days: 30            # 更早的会话在启动时被自动清理
+
+# 长期记忆配置（可选；state13）
+memory:
+  auto_memory: true           # 每轮自然停后是否后台自动提炼笔记(四类去重)。
+                              # 设 false 则只保留指令文件注入 + /memory /forget 手动管理。
