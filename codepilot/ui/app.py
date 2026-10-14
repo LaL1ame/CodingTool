@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import os
 import time
 from collections.abc import Callable
@@ -35,6 +36,8 @@ from codepilot.skills import BUILTIN_DIR as _SKILL_BUILTIN_DIR
 from codepilot.permissions.mode import PermissionMode
 from codepilot.permissions.policy import HumanChoice
 from codepilot.ui.widgets import PromptInput, StatusBar, ToolRow
+
+_log = logging.getLogger("codepilot.ui.app")
 
 CAT = r"""
   ╱|、
@@ -328,13 +331,23 @@ class CodePilotApp(App):
         try:
             msgs = self._chat.build_context()
             bring = int(getattr(skill, "bring_history", 0) or 0)
-            slice_msgs = list(msgs[-bring:]) if bring else []
+            carried = list(msgs[-bring:]) if bring else []
+            # 独立对话必须有一条明确的用户触发消息(空历史时尤其必需):否则 API 拒绝
+            # 空 messages,且模型无「现在执行该 Skill」的指令。故始终补一条触发指令,
+            # 再接待带入的历史(历史在前、触发在后)。
+            trigger = (f"请执行 Skill「{skill_name}」的 SOP"
+                       + (f"，附加要求：{params}" if params else "")
+                       + "。遵循其完整指令完成并给出结论。")
+            prompt_msgs = [*carried, {"role": "user", "content": trigger}]
             provider = getattr(self._agent, "_provider", None)
             want_model = getattr(skill, "model", None)
             if provider is not None and want_model \
                     and want_model != getattr(provider.config, "model", None):
                 from dataclasses import replace as _replace
                 provider = BaseProvider.create(_replace(provider.config, model=want_model))
+            _log.info("isolated skill run: %s (bring=%d, msgs=%d, model=%s)",
+                      skill_name, bring, len(prompt_msgs),
+                      getattr(getattr(provider, "config", None), "model", "?"))
             sub = Agent(
                 provider=provider, registry=self._agent._registry,
                 workspace=getattr(self._agent, "_workspace", None),
@@ -344,15 +357,18 @@ class CodePilotApp(App):
                 refresh_every=0, plan_mode=False, stall_enabled=False,
             )
             chunks: list[str] = []
-            async for d in sub.run(slice_msgs):
+            async for d in sub.run(prompt_msgs):
                 if d.error:
                     log.write(f"\n[bold red]❌ {skill_name} 失败[/bold red]  {d.error}")
+                    _log.error("isolated skill %s failed: %s", skill_name, d.error)
                     return
                 if d.text:
                     chunks.append(d.text)
             summary = "".join(chunks).strip() or "(无输出)"
+            _log.info("isolated skill %s done: %d chars", skill_name, len(summary))
             log.write(f"\n[bold cyan]── {skill_name} 结果(独立对话) ──[/bold cyan]\n{summary}")
         except Exception as e:
+            _log.exception("isolated skill %s exception", skill_name)
             log.write(f"\n[bold red]❌ {skill_name} 执行异常[/bold red]  {e}")
 
     def _snapshot(self) -> StatusSnapshot:
