@@ -84,6 +84,16 @@ def test_check_tools_fail_fast_on_missing(tmp_path):
                  check_tools=lambda n: n in {"read", "grep", "run"})
 
 
+def test_real_builtin_set_and_modes(tmp_path):
+    """内置样板集齐且模式正确:code-review/commit/test=shared, review=isolated。"""
+    from codepilot.skills import BUILTIN_DIR
+    known = load_all(tmp_path, user_root=None, builtin_root=BUILTIN_DIR)
+    assert {"code-review", "commit", "review", "test"} <= set(known)
+    assert known["code-review"].mode == "shared"   # 旧 /review 就地审,独立还原
+    assert known["review"].mode == "isolated"      # 保持独立对话审查
+    assert known["code-review"].tools == frozenset({"read", "glob", "grep", "run"})
+
+
 def test_discover_orders_builtin_user_project(tmp_path):
     builtin = tmp_path / "builtin"
     user = tmp_path / "user"
