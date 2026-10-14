@@ -11,6 +11,7 @@ context/manager.compact_if_over),保持本模块纯、可独立单测。
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from pathlib import Path
@@ -43,32 +44,65 @@ def _last_activity(segments: list[dict]) -> float:
     return max(stamps) if stamps else 0.0
 
 
-def _build_messages(segments: list[dict]) -> list[dict]:
-    """把段落重建为 request 体消息序列(开方/openai 形态,可续跑)。
-    user/assistant 文本 + assistant(带 tool_calls) + tool(结果)。
+def _openai_call(call: dict) -> dict:
+    """把落盘的扁平 tool_calls 项重建为 OpenAI 请求形态(缺 function 包装/type)。"""
+    args = call.get("arguments")
+    if not isinstance(args, str):
+        args = json.dumps(args, ensure_ascii=False)
+    return {"id": call.get("id"), "type": "function",
+            "function": {"name": call.get("name"), "arguments": args}}
+
+
+def _build_messages(segments: list[dict], protocol: str) -> list[dict]:
+    """把段落重建为 request 体消息序列,按协议产出原生形态(可续跑)。
+
+    state15 修:落盘 tool_calls 是【日志扁平形态】({id,name,arguments}),必须按
+    协议重建请求形态,否则 resume 后原样回灌给 provider 会 400
+    (openai 报 missing messages.tool_calls.function;anthropic 需 tool_use/content)。
+    此前的恢复对两者都不合规,只在信手 live 兼容。
     """
+    is_anthropic = protocol.lower() == "anthropic"
     msgs: list[dict] = []
     for s in segments:
-        if s["type"] == "message":
+        t = s["type"]
+        if t == "message":
             msgs.append({"role": s.get("role"), "content": s.get("content", "")})
-        elif s["type"] == "assistant":
-            msg: dict = {"role": "assistant", "content": s.get("content") or None}
-            if s.get("tool_calls"):
-                msg["tool_calls"] = s["tool_calls"]
-            msgs.append(msg)
-        elif s["type"] == "tool_result":
+        elif t == "assistant":
+            text = s.get("content") or ""
+            calls = s.get("tool_calls") or []
+            if is_anthropic:
+                content: list[dict] = []
+                if text:
+                    content.append({"type": "text", "text": text})
+                content.extend({"type": "tool_use", "id": c.get("id"),
+                                "name": c.get("name"), "input": c.get("arguments")}
+                               for c in calls)
+                msgs.append({"role": "assistant", "content": content})
+            else:
+                msg: dict = {"role": "assistant", "content": text or None}
+                if calls:
+                    msg["tool_calls"] = [_openai_call(c) for c in calls]
+                msgs.append(msg)
+        elif t == "tool_result":
             content = s.get("output") or s.get("error") or ""
-            msgs.append({"role": "tool", "tool_call_id": s.get("call_id"),
-                         "content": content})
+            if is_anthropic:
+                msgs.append({"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": s.get("call_id"),
+                     "content": content}]})
+            else:
+                msgs.append({"role": "tool", "tool_call_id": s.get("call_id"),
+                             "content": content})
     return msgs
 
 
-def restore_chat(path: str | Path, *, gap_hours: float | None = None,
+def restore_chat(path: str | Path, *, protocol: str = "openai",
+                 gap_hours: float | None = None,
                  now: float | None = None) -> dict:
     """把会话文件恢复为可续跑的状态。
 
-    返回 {messages, mode, meta}:messages 为含工具调用的完整 LLM 序列(可为
-    ChatManager._msgs 的种子);mode/meta 直接透传。
+    protocol: "anthropic"|"openai"(等 OpenAI 兼容)。决定工具调用/结果的重建形态。
+    注:落盘是协议无关的扁平日志形态,必须按 protocol 重建,否则 resume 后回灌
+    provider 会因 tool_calls 缺 function/tool_use 包装而 400。
     """
     path = Path(path)
     loaded = store.load_session(path)
@@ -78,8 +112,8 @@ def restore_chat(path: str | Path, *, gap_hours: float | None = None,
     trimmed = _truncate_dangling(segments)
     n_cut = len(segments) - len(trimmed)
 
-    # 2. 重建完整序列
-    msgs = _build_messages(trimmed)
+    # 2. 重建完整序列(按协议)
+    msgs = _build_messages(trimmed, protocol)
 
     # 3. 时间跨度提醒:超 gap_hours → 最前插 role=user 提醒(保持首末角色交替合法)
     gap = _DEFAULT_GAP_HOURS if gap_hours is None else gap_hours

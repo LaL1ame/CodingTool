@@ -202,7 +202,11 @@ def main() -> None:
     restored = {"messages": [], "mode": None}
     if loaded is not None:
         from codepilot.session import restore
-        restored = restore.restore_chat(session_path, gap_hours=session_cfg.gap_hours)
+        # state15:按协议重建请求形态——落盘是扁平日志,openai 需 function 包装、
+        # anthropic 需 tool_use/content,否则 resume 后回灌 provider 会 400。
+        restored = restore.restore_chat(session_path,
+                                        protocol=cfg.protocol.lower(),
+                                        gap_hours=session_cfg.gap_hours)
     history = [Message(role=m.get("role"), content=str(m.get("content") or ""),
                        duration=None) for m in restored.get("messages", [])
                if m.get("role") in ("user", "assistant")]

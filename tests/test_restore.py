@@ -3,11 +3,8 @@
 覆盖:dangling 截断、时间跨度提醒、完整 LLM 序列重建、旧格式兼容、
 summarize 无副作用、cleanup_expired 只删过期、会话 ID 防同秒撞车。
 """
-import json
 import os
 import time
-
-import pytest
 
 from codepilot.session import store, restore
 
@@ -77,6 +74,47 @@ def test_restore_legacy_file_no_segments(tmp_path):
 def test_restore_missing_file_empty(tmp_path):
     r = restore.restore_chat(tmp_path / "nope.jsonl", gap_hours=0)
     assert r["messages"] == [] and r["mode"] is None
+
+
+# —— state15: 按协议重建请求形态(落盘是扁平日志,resume 回灌必须合规) ——
+def test_restore_openai_rebuilds_function_wrapper(tmp_path):
+    """openai 兼容:扁平 {id,name,arguments} → {id,type:function,function:{…}}。"""
+    p = store.new_session_path(tmp_path, ts=1700000000)
+    store.append_message(p, role="user", content="查全局")
+    store.append_assistant_toolcalls(
+        p, content="", tool_calls=[{"id": "c1", "name": "glob",
+                                    "arguments": {"pattern": "**/*.py"}}])
+    store.append_tool_result(p, call_id="c1", name="glob", output="A.py")
+
+    r = restore.restore_chat(p, protocol="openai", gap_hours=0)
+    asst = r["messages"][1]
+    assert asst["role"] == "assistant"
+    call = asst["tool_calls"][0]
+    assert call["type"] == "function"
+    assert call["function"]["name"] == "glob"          # function 包装补上
+    assert call["function"]["arguments"] == '{"pattern": "**/*.py"}'  # arguments 成 JSON 串
+    assert r["messages"][2]["role"] == "tool"           # openai 结果用 tool 角色
+    assert r["messages"][2]["tool_call_id"] == "c1"
+
+
+def test_restore_anthropic_rebuilds_tool_use_content(tmp_path):
+    """anthropic:assistant content 为 text+tool_use 列表,结果用 user+tool_result。"""
+    p = store.new_session_path(tmp_path, ts=1700000000)
+    store.append_message(p, role="user", content="审")
+    store.append_assistant_toolcalls(
+        p, content="我先看", tool_calls=[{"id": "tc1", "name": "read",
+                                         "arguments": {"file_path": "a.py"}}])
+    store.append_tool_result(p, call_id="tc1", name="read", output="X")
+
+    r = restore.restore_chat(p, protocol="anthropic", gap_hours=0)
+    asst = r["messages"][1]
+    kinds = [c["type"] for c in asst["content"]]
+    assert kinds == ["text", "tool_use"]               # content 列表,非 tool_calls 键
+    tu = asst["content"][1]
+    assert tu["id"] == "tc1" and tu["name"] == "read" and tu["input"] == {"file_path": "a.py"}
+    res = r["messages"][2]
+    assert res["role"] == "user" and res["content"][0]["type"] == "tool_result"
+    assert res["content"][0]["tool_use_id"] == "tc1"
 
 
 # —— store: 会话 ID 格式 + 排序 ——
