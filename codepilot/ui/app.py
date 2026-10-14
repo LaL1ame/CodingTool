@@ -611,6 +611,10 @@ class CodePilotApp(App):
         if result.truncated and result.total_items:
             return f"{result.total_items} items (truncated)"
         output = result.output or ""
+        # state15: load_skill 成功反馈在首行 ✅;别把长 SOP 折叠成 "N lines" 而藏掉确认
+        head = output.split("\n", 1)[0]
+        if head.startswith("✅"):
+            return head
         lines = output.split("\n")
         if len(lines) == 1 and len(output) <= 60:
             return output

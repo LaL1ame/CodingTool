@@ -39,6 +39,22 @@ async def test_system_exempt_is_true():
     assert tool.system_exempt is True  # 逃生门，不受任何白名单约束
 
 
+class _Result:
+    def __init__(self, output="", truncated=False, total_items=None):
+        self.output = output
+        self.truncated = truncated
+        self.total_items = total_items
+
+
+def test_format_result_shows_load_skill_success_line_not_line_count():
+    """回归:load_skill 成功反馈(长 SOP)不应被折叠成 'N lines' 而藏掉 ✅ 确认。"""
+    from codepilot.ui.app import CodePilotApp
+    out = "✅ 已加载并激活 Skill「mkdocs」（shared 模式，工具白名单：read、grep、write）\n\n完整 SOP：\n# 文档生成\nSOP 正文……"
+    fmt = CodePilotApp._format_result(_Result(out))
+    assert fmt.startswith("✅ 已加载并激活 Skill「mkdocs」")
+    assert "lines" not in fmt  # 不被折叠
+
+
 @pytest.mark.asyncio
 async def test_tool_name_and_schema():
     m = SkillManager({})
