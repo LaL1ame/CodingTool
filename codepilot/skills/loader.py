@@ -65,6 +65,7 @@ def parse_skill_text(raw: str, *, path: Path | None = None) -> Skill:
         bring_history=int(meta.get("bring_history", 0) or 0),
         model=meta.get("model") if isinstance(meta.get("model"), str) else None,
         params_desc=str(meta.get("params_desc", "") or ""),
+        auto_prompt=str(meta.get("auto_prompt", "") or ""),
         path=path,
         resources=frozenset(),
     )

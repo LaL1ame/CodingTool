@@ -140,5 +140,10 @@ class SkillManager:
                     return None
             self.activate(skill, rendered)
             ctx.show(self.success_message(name))
-            return params.strip() or None  # shared：转发给 AI（SOP 已钉住）
+            stripped = params.strip()
+            if stripped:
+                return stripped                      # 带参数 → 转发参数
+            if skill.auto_prompt:
+                return skill.auto_prompt            # 裸命令 + 设了 auto_prompt → 自动注入标准要求(旧 /review 即时感)
+            return None                             # 否则本地钉住,等你发令
         return _handler

@@ -29,5 +29,6 @@ class Skill:
     bring_history: int = 0               # 仅 isolated 有效
     model: str | None = None             # 可选指定模型（仅 isolated 生效）
     params_desc: str = ""                # 参数说明（供命令用法/提示）
+    auto_prompt: str = ""                # 非空时:裸敲该 skill 命令即把这串要求自动发 AI(旧 /review 即时感)
     path: Path | None = None             # 来源文件（内置/用户/项目）
     resources: frozenset[Path] = field(default_factory=frozenset)  # 目录型 Skill 的辅助资源

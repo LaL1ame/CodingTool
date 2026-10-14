@@ -47,6 +47,13 @@ def test_parse_optional_defaults(tmp_path):
     assert skill.bring_history == 0
     assert skill.model is None
     assert skill.tools == frozenset()
+    assert skill.auto_prompt == ""   # 缺省空 → 裸命令不自动注入
+
+
+def test_parse_auto_prompt(tmp_path):
+    content = "---\nname: a\ndescription: b\nauto_prompt: 请审查改动\n---\nbody"
+    skill = parse_skill_file(_write(tmp_path, content))
+    assert skill.auto_prompt == "请审查改动"
 
 
 def test_missing_name_raises(tmp_path):

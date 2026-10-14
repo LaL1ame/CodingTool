@@ -4,9 +4,10 @@ from codepilot.skills.manager import SkillManager
 from codepilot.skills.model import Skill, SkillError
 
 
-def _skill(name, *, mode="shared", tools=(), body="do {input}", desc="desc"):
+def _skill(name, *, mode="shared", tools=(), body="do {input}", desc="desc",
+           auto_prompt=""):
     return Skill(name=name, description=desc, body=body,
-                 tools=frozenset(tools), mode=mode)
+                 tools=frozenset(tools), mode=mode, auto_prompt=auto_prompt)
 
 
 def test_phase1_block_lists_names_and_desc():
@@ -88,6 +89,26 @@ def test_command_handler_shared_shows_success():
     assert out == "发个提交"
     assert any("已加载并激活 Skill「commit」" in s and "read" in s for s in ctx.shown)
     assert "commit" in m.active
+
+
+def test_command_bare_with_auto_prompt_injects_requirement():
+    """裸敲 skill 命令且设了 auto_prompt → 把标准要求自动发 AI(旧 /review 即时感)。"""
+    m = SkillManager({"code-review": _skill("code-review",
+                                             auto_prompt="请按规范审查改动")})
+    ctx = _FakeCtx()
+    out = m.command_handler("code-review")(ctx, "")
+    assert out == "请按规范审查改动"          # 裸命令自动注入要求,不等待
+    assert "code-review" in m.active           # SOP 同时钉住
+    assert any("已加载并激活" in s for s in ctx.shown)
+
+
+def test_command_bare_without_auto_prompt_waits():
+    """无 auto_prompt 的共享 skill:裸命令只激活钉住、等发令(不转发)。"""
+    m = SkillManager({"mkdocs": _skill("mkdocs")})
+    ctx = _FakeCtx()
+    out = m.command_handler("mkdocs")(ctx, "")
+    assert out is None
+    assert "mkdocs" in m.active
 
 
 def test_command_handler_isolated_shows_start_and_runs():
