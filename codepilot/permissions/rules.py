@@ -5,6 +5,7 @@
 """
 
 import fnmatch
+import re
 from dataclasses import dataclass
 from enum import Enum
 
@@ -53,13 +54,33 @@ def verdict_from_text(text: str) -> Verdict:
     return _VERDICT_TEXT.get(text.strip().lower(), Verdict.ALLOW)
 
 
-def match_text(pattern: str, subject: str | None) -> bool:
-    """规则 pattern 是否命中 subject。
+def is_regex_pattern(pattern: str) -> bool:
+    """pattern 是否为 `/.../` 正则形态（首尾均 / 且长度>=2）。"""
+    return len(pattern) >= 2 and pattern.startswith("/") and pattern.endswith("/")
 
-    无通配符时按精确匹配；含 glob 通配时用 fnmatch（支持 * ? []）。
+
+def regex_body(pattern: str) -> str:
+    """取出 `/.../` 包裹的正则正文（调用前须 is_regex_pattern 为真）。"""
+    return pattern[1:-1]
+
+
+def match_text(pattern: str, subject: str | None) -> bool:
+    """规则 pattern 是否命中 subject。四种语法（权限规则与 Hook 条件共用）：
+
+    - `!` 前缀   → 反向（可包任意下层语法：!git * / !/rm -rf/ / !exact）
+    - `/.../`    → 正则 re.search；非法正则防御性 no-match（加载期另行校验）
+    - 含 * ? [   → glob（fnmatch）
+    - 其余       → 精确相等
     """
     if subject is None:
         return False
+    if pattern.startswith("!"):
+        return not match_text(pattern[1:], subject)
+    if is_regex_pattern(pattern):
+        try:
+            return re.search(regex_body(pattern), subject) is not None
+        except re.error:
+            return False
     if any(ch in pattern for ch in "*?["):
         return fnmatch.fnmatch(subject, pattern)
     return pattern == subject
