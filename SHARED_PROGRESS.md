@@ -8,9 +8,9 @@
 
 ## 最近一次更新：2026-10-14
 
-### state15（开发完成，自动化验收通过，待真机清单）
+### state15（开发完成 + 真机验收通过）
 **state15：Skill 系统**（`docs/state15-skill-system/`）
-- **状态：四文档获批后开发完成，376 测试绿（原 338 + 新增 38），state15 文件 ruff 全清。**
+- **状态：四文档获批后开发完成，391 测试绿，state15 文件 ruff 全清；真机验收通过。**
 - 目标：把可复用 AI 操作封装成带元信息的 Markdown 能力包，两阶段加载 + 共享/独立双执行 + 工具白名单收窄，解决「反复输入同样提示词」。承接 state14 明确的后续（动态命令注入）。
 - **架构**：新包 `codepilot/skills/`（model/loader/resolver/manager/tool + data 内置样板）。三级存放 `.skills`（项目>用户>内置 `skills/data/`，随包 package-data）。两阶段注入复用 `prompt/builder` volatile 尾块（`skill_blocks`，env 后最显眼位）；白名单复用 `agent._build_tools` 交集（∩plan 只读，系统 `load_skill` 恒可见为逃生门）；命令动态注册复用 state14 `CommandRegistry.register(replace=True)`。
 - **关键裁决**：
@@ -21,7 +21,13 @@
   5. **/clear 联动**：清空对话时 `deactivate_all` 复位激活+白名单，但已注册 skill 命令保留（可快速重触发）。
 - 内置三样板：commit(shared) / review(isolated,目录型) / test(shared)。
 - 文件：`codepilot/skills/*`、`prompt/{builder,sections}.py`、`agent.py`、`tools/base.py`、`commands/registry.py`、`commands/builtins.py`、`ui/app.py`、`main.py`、`pyproject.toml`、6 个新测试。
-- 待做：交付阶段五人工验证清单 → 阶段六真机验收（两阶段/独立模式/白名单/热更新/clear 联动/fail-fast）。
+- **真机验收（用户实机确认）**：
+  - 自主判断：新对话让模型给 commands 包写文档，第一步自调 `load_skill` 切入 mkdocs ✓，且 load_skill 成功确认行已修到可见（不再折叠成 N lines）✓
+  - `--resume` 恢复后不再报 `messages.tool_calls.function` 400（restore 按协议重建工具调用形态）✓
+  - `/reload` 会话内热重载：新/改 skill 立即可用，核心命令不被覆盖 ✓
+  - `/review` isolated 独立对话（plan_mode 参数根因修复后走通）✓
+  - `/code-review` 裸敲自动注入审查要求（auto_prompt 复刻旧 /review 即时感）+ 真机确认 ✓
+- **真机修复链**（对本阶段质量很关键）：empty-messages → 补触发消息+文件日志(暴露真因) → 子 Agent 误传 plan_mode(真根因) → load_skill 确认行被 UI 折叠(可见性) → resume 400(tool_calls 请求形态)。
 
 ### state14（开发+验收全通过，已提交）
 **state14：命令注册与分发机制**（`docs/state14-command-registry/`；提交 e6a0f3e 代码 + 跟随 docs）
