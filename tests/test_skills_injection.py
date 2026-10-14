@@ -116,3 +116,18 @@ def test_run_injects_skill_blocks():
     sys_snap = captured.seen_systems[-1]
     flat = sys_snap.stable + sys_snap.volatile
     assert any("SKILL-PINNED-BLOCK" in b for b in flat)
+
+
+def test_isolated_subagent_constructor_kwargs_valid():
+    """回归：_run_isolated_skill 构造子 Agent 的 kwargs 必须全为 Agent 合法参数。
+    曾因误传 plan_mode=False（那是 set_plan_mode() 方法非构造参数）导致
+    /review(独立模式) 抛 TypeError —— 同款构造参数必须持续可构造。"""
+    a = Agent(
+        provider=_CapturingProvider(), registry=_registry(),
+        workspace=__import__("pathlib").Path("."),
+        env=EnvContext(cwd=".", date="2026-01-01"),
+        skill_injector=lambda: ["body"],
+        skill_whitelist=lambda: {"read"},
+        refresh_every=0, stall_enabled=False,
+    )
+    assert a is not None

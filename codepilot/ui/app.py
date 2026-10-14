@@ -354,7 +354,7 @@ class CodePilotApp(App):
                 env=getattr(self._agent, "_env", None),
                 skill_injector=(lambda sk=skill: [sk.body]),
                 skill_whitelist=(lambda sk=skill: set(sk.tools) or None),
-                refresh_every=0, plan_mode=False, stall_enabled=False,
+                refresh_every=0, stall_enabled=False,  # plan_mode 是 set_plan_mode() 方法,非构造参数
             )
             chunks: list[str] = []
             async for d in sub.run(prompt_msgs):
