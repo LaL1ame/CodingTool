@@ -101,8 +101,15 @@ class SkillManager:
         self._active.clear()
         self._rendered.clear()
 
+    def success_message(self, name: str) -> str:
+        """「加载成功」的明确反馈文本，供工具/命令展示——用户可据以判断成败。"""
+        skill = self.require(name)
+        tools = "、".join(sorted(skill.tools)) if skill.tools else "不设限"
+        return (f"✅ 已加载并激活 Skill「{name}」"
+                f"（{skill.mode} 模式，工具白名单：{tools}）")
+
     def command_handler(self, name: str):
-        """占位：由 App 注入/覆写，把命令触发接到 Skill 执行。"""
+        """把命令触发接到 Skill 执行；加载/激活时给用户明确成功与模式反馈。"""
         def _handler(ctx, params: str):
             skill = self.require(name)
             rendered = render_body(skill.body, params)
@@ -110,8 +117,10 @@ class SkillManager:
                 # isolated 由 ctx 开独立对话跑完回流摘要，不钉入主对话
                 ctx_exe = getattr(ctx, "run_isolated_skill", None)
                 if ctx_exe is not None:
+                    ctx.show(f"▶ 开始独立执行 Skill「{name}」…")
                     ctx_exe(skill, params)
                     return None
             self.activate(skill, rendered)
+            ctx.show(self.success_message(name))
             return params.strip() or None  # shared：转发给 AI（SOP 已钉住）
         return _handler

@@ -66,3 +66,42 @@ def test_require_unknown_raises():
         assert False, "should raise"
     except SkillError:
         pass
+
+
+class _FakeCtx:
+    def __init__(self):
+        self.shown = []
+        self.calls = []
+
+    def show(self, msg):
+        self.shown.append(msg)
+
+    def run_isolated_skill(self, skill, params):
+        self.calls.append((skill.name, params))
+
+
+def test_command_handler_shared_shows_success():
+    m = SkillManager({"commit": _skill("commit", tools=("read", "run"))})
+    ctx = _FakeCtx()
+    out = m.command_handler("commit")(ctx, " 发个提交  ")
+    # 共享：先反馈成功，再把参数转发 AI
+    assert out == "发个提交"
+    assert any("已加载并激活 Skill「commit」" in s and "read" in s for s in ctx.shown)
+    assert "commit" in m.active
+
+
+def test_command_handler_isolated_shows_start_and_runs():
+    m = SkillManager({"review": _skill("review", mode="isolated", tools=("read",))})
+    ctx = _FakeCtx()
+    out = m.command_handler("review")(ctx, "")
+    assert out is None                        # isolated：不转发，走独立执行
+    assert any("开始独立执行 Skill「review」" in s for s in ctx.shown)
+    assert ctx.calls == [("review", "")]
+    assert "review" not in m.active           # 隔离型不钉入主对话
+
+
+def test_success_message_lists_mode_and_whitelist():
+    m = SkillManager({"x": _skill("x", tools=("run", "read"))})
+    msg = m.success_message("x")
+    assert "「x」" in msg
+    assert "shared" in msg and "run" in msg and "read" in msg

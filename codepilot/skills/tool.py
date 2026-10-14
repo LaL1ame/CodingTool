@@ -55,4 +55,6 @@ class LoadSkillTool(Tool):
             rendered = self._manager.load(name, params)
         except SkillError as e:
             return ToolResult(call_id="", name=self.name, error=str(e))
-        return ToolResult(call_id="", name=self.name, output=rendered)
+        # 成功反馈前缀：让模型与 UI 工具行都能明确看出「已加载并激活」。
+        head = self._manager.success_message(name) + "\n\n完整 SOP：\n"
+        return ToolResult(call_id="", name=self.name, output=head + rendered)

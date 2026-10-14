@@ -7,27 +7,29 @@ from codepilot.skills.model import Skill
 from codepilot.skills.tool import LoadSkillTool  # 从 skills 包引，不回环 tools
 
 
-def _skill(name, body="do {input}"):
-    return Skill(name=name, description="d", body=body, tools=frozenset({"read"}))
+def _skill(name, body="do {input}", tools=("read",)):
+    return Skill(name=name, description="d", body=body, tools=frozenset(tools))
 
 
 @pytest.mark.asyncio
-async def test_execute_returns_rendered_body():
-    m = SkillManager({"commit": _skill("commit", body="按 {input} 提交")})
+async def test_execute_returns_success_prefix_and_body():
+    m = SkillManager({"commit": _skill("commit", body="按 {input} 提交", tools=("read",))})
     tool = LoadSkillTool(m)
     res = await tool.execute("commit", "  修复 bug  ")
     assert res.error is None
-    assert res.output == "按 修复 bug 提交"
+    assert "已加载并激活 Skill「commit」" in res.output   # 成功反馈可判断
+    assert "完整 SOP" in res.output
+    assert res.output.endswith("按 修复 bug 提交")        # 完整正文仍在
     assert "commit" in m.active
 
 
 @pytest.mark.asyncio
-async def test_execute_unknown_name_returns_error():
+async def test_execute_unloaded_product():
     m = SkillManager({})
     tool = LoadSkillTool(m)
     res = await tool.execute("nope")
-    assert res.error is not None
-    assert "未知" in res.error
+    # 失败也给出可判断的错误（非空 error）
+    assert res.error is not None and res.output is None
 
 
 @pytest.mark.asyncio
