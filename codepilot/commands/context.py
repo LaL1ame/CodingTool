@@ -60,6 +60,9 @@ class CommandContext(Protocol):
     def clear_display(self) -> None:
         """清空屏幕显示(RichLog),保留会话历史与上下文。"""
 
+    def reload_skills(self) -> None:
+        """会话内热重载 Skill（重扫三级、更新 known 与命令），供 /reload 用。"""
+
     def snapshot(self) -> StatusSnapshot:
         """返回当前运行状态快照。"""
 

@@ -9,7 +9,7 @@ def test_builtin_full_set_and_no_conflicts():
     names = {s.name for s in r.all()}
     expected = {"help", "exit", "plan", "do", "mode", "auto", "manual", "strict",
                 "edits", "compact", "continue", "memory", "forget", "clear",
-                "session", "permission", "status"}
+                "session", "permission", "status", "reload"}
     assert names == expected  # state15: /review 移交内置 review Skill(非内置命令)
 
 

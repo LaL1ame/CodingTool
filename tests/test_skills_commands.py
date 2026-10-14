@@ -85,3 +85,37 @@ def test_isolated_vs_shared_kind_mapping():
     r.register(_skill_spec(_skill("iso", mode="isolated"), lambda c, p: None))
     assert r.resolve("shared").kind is CommandKind.UI
     assert r.resolve("iso").kind is CommandKind.LOCAL
+
+
+def test_reload_command_exists_in_builtins():
+    from codepilot.commands.builtins import build_registry
+    r = build_registry()
+    assert r.resolve("reload") is not None
+
+
+def test_reload_reregisters_new_skill_command():
+    """/reload 后,新写的 skill 立即可用:重新全部注册 non-core skill 命令。"""
+    r = CommandRegistry()
+    core = {"help", "status", "exit"}  # 模拟核心命令名(保护集)
+    m = SkillManager({"mkdocs": _skill("mkdocs")})
+    # 注册除 core 外的全部 known skill 命令(重载后的 App 逻辑)
+    for name in sorted(m.known):
+        if name in core:
+            continue
+        r.register(_skill_spec(m.require(name), m.command_handler(name)))
+    # reload 后新增一个 skill
+    m._known = {"mkdocs": m.known["mkdocs"], "audit": _skill("audit", mode="isolated")}
+    for name in sorted(m.known):
+        if name in core:
+            continue
+        r.register(_skill_spec(m.require(name), m.command_handler(name)), replace=True)
+    assert r.resolve("mkdocs") is not None
+    assert r.resolve("audit") is not None      # 新增 skill 命令立即可用
+    # 撞核心命令名的 skill 不被登记(保护 /status 等)
+    m2 = SkillManager({"status": _skill("status")})
+    before = set(x.name for x in r.all())
+    for name in sorted(m2.known):
+        if name in core:
+            continue
+        r.register(_skill_spec(m2.require(name), m2.command_handler(name)), replace=True)
+    assert set(x.name for x in r.all()) == before  # status 未被覆盖

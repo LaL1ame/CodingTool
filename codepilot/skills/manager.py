@@ -28,12 +28,14 @@ class SkillManager:
         *,
         on_register_command: Callable[[str, Callable[..., Any]], None] | None = None,
         on_unregister_command: Callable[[str], None] | None = None,
+        refetch: Callable[[], dict[str, Skill]] | None = None,
     ) -> None:
         self._known = dict(known)
         self._active: dict[str, Skill] = {}
         self._rendered: dict[str, str] = {}
         self._on_register_command = on_register_command
         self._on_unregister_command = on_unregister_command
+        self._refetch = refetch  # /reload 用,重扫三级返回全新 known
 
     # —— 查询 ——
     @property
@@ -100,6 +102,22 @@ class SkillManager:
         """清空激活态与白名单（/clear 联动）。known 与已注册命令保留。"""
         self._active.clear()
         self._rendered.clear()
+
+    def reload(self) -> tuple[list[str], list[str]]:
+        """重扫三级、替换 known（内容热更新）；返回 (新增, 移除) 名字列表。
+
+        需构造时配 refetch（main 注入 load_all 闭包）。重载后内容可能变化，
+        为避免 Pin 住过期的完整指令，一并复位激活态与白名单。
+        """
+        if self._refetch is None:
+            raise SkillError("Skill 重载未配置: 构造时需传入 refetch 回调")
+        old = set(self._known)
+        new = dict(self._refetch())
+        added = sorted(n for n in new if n not in old)
+        removed = sorted(n for n in old if n not in new)
+        self._known = new
+        self.deactivate_all()
+        return added, removed
 
     def success_message(self, name: str) -> str:
         """「加载成功」的明确反馈文本，供工具/命令展示——用户可据以判断成败。"""

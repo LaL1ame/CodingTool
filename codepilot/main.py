@@ -172,11 +172,15 @@ def main() -> None:
         auto_memory_cb = _auto_memory
 
     # —— Skill 系统(state15):三级加载 + 系统级 load_skill 工具 + 两阶段注入 ——
+    def _refetch_skills() -> dict[str, _skills.Skill]:
+        """/reload 用：重扫三级返回全新 known（含本项目 .skills 新写/改的文件）。"""
+        return _skills.load_all(workspace,
+                                user_root=Path.home() / ".skills",
+                                builtin_root=_skills.BUILTIN_DIR,
+                                check_tools=lambda n: registry.get(n) is not None)
+
     skill_manager = _skills.SkillManager(
-        _skills.load_all(workspace,
-                         user_root=Path.home() / ".skills",
-                         builtin_root=_skills.BUILTIN_DIR,
-                         check_tools=lambda n: registry.get(n) is not None),
+        _refetch_skills(), refetch=_refetch_skills,
     )
     registry.register(_skills.LoadSkillTool(skill_manager))  # 系统工具,不受白名单约束
 

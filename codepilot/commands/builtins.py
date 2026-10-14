@@ -159,6 +159,10 @@ def build_registry() -> CommandRegistry:
     _register("clear", CommandKind.UI, "清屏显示,保留历史与上下文", h_clear,
               aliases=("cls",))
 
+    def h_reload(ctx, params):
+        ctx.reload_skills()
+    _register("reload", CommandKind.UI, "会话内热重载 Skill(重扫三级+更新命令)", h_reload)
+
     def h_permission(ctx, params):
         s = ctx.snapshot()
         ctx.show(

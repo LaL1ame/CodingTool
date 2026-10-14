@@ -76,6 +76,8 @@ class CodePilotApp(App):
         self._memory_injector = memory_injector  # state13: /memory 展示用
         # state14: 命令注册中心 + 界面控制接口 + Tab 补全(均框架无关,可注入/替换)
         self._command_registry = build_registry()
+        # 核心内置命令名(不含 skill 命令):/reload 重注册时保护其不被 skill 覆盖
+        self._core_names: frozenset[str] = frozenset(s.name for s in self._command_registry.all())
         self.command_ctx: CommandContext = _CommandContextImpl(self)
         self.completer = make_completer(self._command_registry)
         # state15: 把「加载 Skill 时」动态注册命令的回调接到本 App 注册中心;
@@ -317,6 +319,31 @@ class CodePilotApp(App):
         for name, skill in self._skill_manager.known.items():
             if skill.path is not None and skill.path.is_relative_to(_SKILL_BUILTIN_DIR):
                 self._register_skill_command(name, self._skill_manager.command_handler(name))
+
+    def _reload_skills(self) -> None:
+        """/reload：会话内热重载 Skill——重扫三级更新 known 与命令,新写/改的 skill 立即可用(Claude Code 式)。"""
+        if self._skill_manager is None:
+            self._chat_log().write("\n[dim]── Skill 系统未启用[/dim]")
+            return
+        try:
+            added, removed = self._skill_manager.reload()
+        except Exception as e:
+            _log.exception("skill reload failed")
+            self._chat_log().write(f"\n[bold red]⚠ Skill 重载失败[/bold red]  {e}")
+            return
+        # 重注册全部已知 skill 命令;撞核心命令名则跳过,保护 /status 等不被覆盖。
+        for name in sorted(self._skill_manager.known):
+            if name in self._core_names:
+                self._chat_log().write(
+                    f"\n[dim]Skill「{name}」撞核心命令,不注册斜杠命令(仍可用 load_skill 加载)[/dim]")
+                continue
+            self._register_skill_command(name, self._skill_manager.command_handler(name))
+        self._register_builtin_skill_commands()
+        added_txt = "、".join(added) or "无"
+        removed_txt = "、".join(removed) or "无"
+        self._chat_log().write(
+            f"\n[dim]── 已重载 Skill：新增 {len(added)}（{added_txt}）、移除 {len(removed)}（{removed_txt}）[/dim]")
+        _log.info("skill reload: added=%s removed=%s", added, removed)
 
     async def _run_isolated_skill(self, skill, params: str) -> None:
         """独立模式:开一段独立 Agent 循环跑完,只把结论/摘要回流主对话。
@@ -628,6 +655,10 @@ class _CommandContextImpl(CommandContext):
 
     def clear_display(self) -> None:
         self._app._clear_display()
+
+    def reload_skills(self) -> None:
+        """/reload：会话内热重载 Skill（/reload 命令 / 协议接口）。"""
+        self._app._reload_skills()
 
     def snapshot(self) -> StatusSnapshot:
         return self._app._snapshot()

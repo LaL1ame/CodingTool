@@ -105,3 +105,25 @@ def test_success_message_lists_mode_and_whitelist():
     msg = m.success_message("x")
     assert "「x」" in msg
     assert "shared" in msg and "run" in msg and "read" in msg
+
+
+def test_reload_requres_refetch_or_raises():
+    m = SkillManager({})
+    try:
+        m.reload()
+        assert False, "should raise"
+    except SkillError:
+        pass
+
+
+def test_reload_replaces_known_and_reports_diff():
+    # 模拟:启动只有 a;用户在会话中新建了 b、删了 a → /reload 重扫
+    initial = {"a": _skill("a")}
+    m = SkillManager(initial, refetch=lambda: {"b": _skill("b")})
+    m.load("a")                       # 先激活 a
+    added, removed = m.reload()
+    assert added == ["b"]
+    assert removed == ["a"]
+    assert "b" in m.known and "a" not in m.known
+    assert not m.active               # 重载复位激活态(内容可能变)
+    assert m.active_whitelist() is None
