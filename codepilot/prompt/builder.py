@@ -55,17 +55,20 @@ def build_system_prompt(
     refresh_every: int,
     memory_blocks: Sequence[str] = (),
     skill_blocks: Sequence[str] = (),
+    hook_blocks: Sequence[str] = (),
 ) -> SystemPrompt:
     """生成当前轮的分层系统提示。
 
     memory_blocks: state13 长期记忆的 volatile 块(指令+索引),追加在动态尾块末位。
     skill_blocks: state15 技能块(阶段一名册 + 激活钉住指令),置于 env 之后、plan/memory
       之前(最显眼位),每轮重建。
-    两者均可空,缺省行为等价既有无记忆/无技能的构建。
+    hook_blocks: state16 Hook 提示词注入块,紧跟 skill 块之后,每轮重建。
+    三者均可空,缺省行为等价既有无记忆/无技能/无 Hook 的构建。
     """
     stable = [s.content for s in sorted(FIXED_SECTIONS, key=lambda s: s.priority)]
     volatile = [format_env(env.cwd, env.date)]
     volatile.extend(skill_blocks)  # state15: 技能块最显眼（env 后、plan/memory 前）
+    volatile.extend(hook_blocks)   # state16: Hook 注入块（紧跟 skill 块）
     volatile.extend(_plan_blocks(plan_mode, round_num, refresh_every))
     volatile.extend(memory_blocks)
     return SystemPrompt(stable=stable, volatile=volatile)
