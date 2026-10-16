@@ -33,19 +33,32 @@ class Rule:
 
 
 def parse_rule(text: str) -> Rule:
-    """解析 `Tool(pattern)` 字符串为 Rule。结果三段用冒号分隔：`run(git *): allow`。
+    """解析 `Tool(pattern)` 字符串为 Rule。结果段用冒号分隔：`run(git *): allow`。
 
     Example:
         parse_rule("run(git *): allow")  -> Rule("run", "git *", Verdict.ALLOW)
+
+    冒号定界:结果段为空或 allow/ask/deny(定界是「冒号后为合法结果」的
+    最后一个冒号,而非 partition 首冒号)——使 pattern 内可含冒号,如
+    正则 `/^C:/`(Windows 路径)或 URL。如 `read(/^C:/): deny`。
     """
-    head, _, rest = text.partition(":")  # 结果段（可省略，默认 allow）
+    # 从右往左找结果段定界冒号:其后为空或合法 verdict
+    sep = None
+    for i in range(len(text) - 1, -1, -1):
+        if text[i] != ":":
+            continue
+        if text[i + 1:].strip() == "" or _VERDICT_TEXT.get(text[i + 1:].strip().lower()):
+            sep = i
+            break
+    head = text[:sep] if sep is not None else text
+    verdict = verdict_from_text(text[sep + 1:]) if sep is not None else Verdict.ALLOW
+
     open_idx = head.find("(")
     close_idx = head.find(")")
     if open_idx < 0 or close_idx < 0 or close_idx < open_idx:
         raise ValueError(f"规则格式错误，缺少 (pattern): {text!r}")
     tool = head[:open_idx].strip()
     pattern = head[open_idx + 1:close_idx].strip()
-    verdict = verdict_from_text(rest.strip())
     return Rule(tool=tool, pattern=pattern, verdict=verdict)
 
 

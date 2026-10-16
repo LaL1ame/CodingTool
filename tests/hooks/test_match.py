@@ -4,8 +4,10 @@
 """
 
 from codepilot.permissions.rules import (
+    Verdict,
     is_regex_pattern,
     match_text,
+    parse_rule,
     regex_body,
 )
 
@@ -52,6 +54,34 @@ class TestNegation:
     def test_negate_regex(self):
         assert match_text("!/^rm -rf/", "ls -la") is True
         assert match_text("!/^rm -rf/", "rm -rf /tmp") is False
+
+
+class TestParseRule:
+    """parse_rule 冒号定界修复:pattern 内可含冒号(如正则 /^C:/、URL)。"""
+
+    def test_plain(self):
+        r = parse_rule("run(git *): deny")
+        assert (r.tool, r.pattern, r.verdict) == ("run", "git *", Verdict.DENY)
+
+    def test_default_verdict(self):
+        assert parse_rule("read(a.py)").verdict is Verdict.ALLOW
+        assert parse_rule("read(a.py):").verdict is Verdict.ALLOW
+
+    def test_regex_with_colon(self):
+        # 回归:partition 首冒号会截断含冒号的正则;须取「冒号后为合法结果」的定界
+        r = parse_rule("read(/^C:/): deny")
+        assert (r.tool, r.pattern, r.verdict) == ("read", "/^C:/", Verdict.DENY)
+
+    def test_url_like_pattern_with_colon(self):
+        r = parse_rule("http(https://example.com/x): ask")
+        assert r.tool == "http"
+        assert r.pattern == "https://example.com/x"
+        assert r.verdict is Verdict.ASK
+
+    def test_malformed_raises(self):
+        import pytest
+        with pytest.raises(ValueError):
+            parse_rule("no-parens: allow")
 
 
 class TestRegex:
