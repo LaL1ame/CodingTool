@@ -60,12 +60,17 @@ class CodePilotApp(App):
              seed_msgs: list | None = None,
              auto_memory: Callable[[list[dict]], None] | None = None,
              memory_injector=None,
-             skill_manager=None) -> None:
+             skill_manager=None,
+             hook_engine=None,
+             hook_injector=None) -> None:
         super().__init__()
         self._agent = agent
         self._context_manager = context_manager
         # state15: Skill 管理器(装配命令注册 + isolated 编排 + /clear 联动)。
         self._skill_manager = skill_manager
+        # state16: Hook 引擎与注入器(session_start/end 发射 + notify + /clear 联动)。
+        self._hook_engine = hook_engine
+        self._hook_injector = hook_injector
         self._mode_state = ModeState(release=ReleasePolicy(release))
         if initial_modes:
             self._mode_state.restore(initial_modes)
@@ -98,7 +103,8 @@ class CodePilotApp(App):
         self._chat = ChatManager(self._agent, history=self._history,
                                  session_file=self._session_file,
                                  msgs=self._seed_msgs,
-                                 auto_memory=self._auto_memory)
+                                 auto_memory=self._auto_memory,
+                                 hooks=self._hook_engine)
         # 注入上下文管理器:绑定 chat + 注入 agent(层1拦截/usage锚点)
         if self._context_manager is not None:
             self._context_manager.attach_chat(self._chat)
@@ -125,11 +131,32 @@ class CodePilotApp(App):
         self.query_one("#prompt", TextArea).focus()  # 启动即把输入焦点交给 prompt(否则落在 RichLog)
         self._refresh_status()
 
+        # state16: session_start 发射 + notify 接线（app 就绪后才可写 RichLog）
+        if self._hook_engine is not None:
+            self._hook_engine.notify = self._hook_notify
+            self.run_worker(self._hook_engine.fire(
+                "session_start", {"resumed": bool(self._seed_msgs)}))
+
     def on_unmount(self) -> None:
         """退出时把最终模式快照写入会话文件,供下次 resume。"""
         if self._session_file:
             from codepilot.session import store
             store.append_mode(self._session_file, self._mode_state.snapshot())
+        # state16: session_end best-effort 发射 + 后台任务有界收尾
+        # （关停流程中异步动作可能被取消——记日志兜底，不保证 command 跑完）
+        if self._hook_engine is not None:
+            self.run_worker(self._hook_session_end())
+
+    async def _hook_session_end(self) -> None:
+        await self._hook_engine.fire("session_end", {})
+        await self._hook_engine.aclose()
+
+    def _hook_notify(self, msg: str) -> None:
+        """Hook 的 TUI 系统行回调（引擎与 UI 解耦的唯一通道）。"""
+        try:
+            self.query_one("#chat", RichLog).write(f"\n[dim]{msg}[/dim]")
+        except Exception as e:
+            _log.warning("hook notify 写屏失败: %s", e)
 
     def _replay_history(self, log: RichLog) -> None:
         """state12:恢复会话时,把上一段对话整段画回屏幕,可往上回滚。
@@ -292,11 +319,14 @@ class CodePilotApp(App):
 
     def _clear_display(self) -> None:
         """/clear:清空屏显示(RichLog),保留会话历史与上下文。
-        同时联动复位已激活的 Skill(激活态+白名单),但保留已注册的 skill 命令(state15)。"""
+        同时联动复位已激活的 Skill(激活态+白名单)与 Hook 注入块(state15/16),
+        但保留已注册的 skill 命令。"""
         self.query_one("#chat", RichLog).clear()
         if self._skill_manager is not None:
             self._skill_manager.deactivate_all()
             self._refresh_status()
+        if self._hook_injector is not None:
+            self._hook_injector.clear()
 
     # —— state15: Skill 命令注册与 isolated 编排 ——
     def _register_skill_command(self, name: str, handler) -> None:
