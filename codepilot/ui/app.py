@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable
 
 from textual.app import App, ComposeResult
-from textual.widgets import Footer, Header, RichLog, Static, TextArea
+from textual.widgets import Footer, Header, Static, TextArea
 
 from codepilot.agent import Agent
 from codepilot.chat import ChatManager
@@ -35,7 +35,7 @@ from codepilot.skills import BUILTIN_DIR as _SKILL_BUILTIN_DIR
 from codepilot.permissions.mode import PermissionMode
 from codepilot.permissions.policy import HumanChoice
 from codepilot.ui import palette
-from codepilot.ui.widgets import PromptInput, StatusBar
+from codepilot.ui.widgets import ChatLog, PromptInput, StatusBar
 
 _log = logging.getLogger("codepilot.ui.app")
 
@@ -120,7 +120,7 @@ class CodePilotApp(App):
         cfg = self._agent._provider.config
         proto = cfg.protocol.upper()
 
-        log = self.query_one("#chat", RichLog)
+        log = self.query_one("#chat", ChatLog)
         log.styles.height = "1fr"
 
         log.write(f"[bold cyan]{CAT}[/bold cyan]\n")
@@ -129,10 +129,10 @@ class CodePilotApp(App):
         self._replay_history(log)  # state12: 恢复会话时把上一段对话画回屏(可回滚,对齐 Claude Code)
 
         self._apply_modes()  # 把构造传入的初始 release 同步到后端
-        self.query_one("#prompt", TextArea).focus()  # 启动即把输入焦点交给 prompt(否则落在 RichLog)
+        self.query_one("#prompt", TextArea).focus()  # 启动即把输入焦点交给 prompt(否则落在 ChatLog)
         self._refresh_status()
 
-        # state16: session_start 发射 + notify 接线（app 就绪后才可写 RichLog）
+        # state16: session_start 发射 + notify 接线（app 就绪后才可写 ChatLog）
         if self._hook_engine is not None:
             self._hook_engine.notify = self._hook_notify
             self.run_worker(self._hook_engine.fire(
@@ -155,11 +155,11 @@ class CodePilotApp(App):
     def _hook_notify(self, msg: str) -> None:
         """Hook 的 TUI 系统行回调（引擎与 UI 解耦的唯一通道）。"""
         try:
-            self.query_one("#chat", RichLog).write(f"\n[dim]{msg}[/dim]")
+            self.query_one("#chat", ChatLog).write(f"\n[dim]{msg}[/dim]")
         except Exception as e:
             _log.warning("hook notify 写屏失败: %s", e)
 
-    def _replay_history(self, log: RichLog) -> None:
+    def _replay_history(self, log: ChatLog) -> None:
         """state12:恢复会话时,把上一段对话整段画回屏幕,可往上回滚。
 
         只画 user/assistant 文本轮(与 _process_chat 新消息同款样式);
@@ -179,7 +179,7 @@ class CodePilotApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield RichLog(id="chat", highlight=True, markup=True, wrap=True)
+        yield ChatLog(id="chat", highlight=True, markup=True, wrap=True)
         yield Static("", id="stream")
         yield Static("Enter 发送 · Ctrl+J 换行 · 支持多行(可粘贴)  (/exit /plan /do)", id="prompt-hint")
         yield PromptInput(id="prompt", soft_wrap=True, completer=self.completer)  # soft_wrap:长行折行自适应;completer:Tab补全(state14)
@@ -195,7 +195,7 @@ class CodePilotApp(App):
         policy, ae = self._mode_state.cycle_release()
         self._apply_modes()
         ae_txt = " · 自动编辑 ON" if ae else ""
-        self.query_one("#chat", RichLog).write(
+        self.query_one("#chat", ChatLog).write(
             f"\n[dim]── 模式 → {policy.value}{ae_txt}[/dim]")
         self.query_one("#prompt", TextArea).clear()
 
@@ -237,7 +237,7 @@ class CodePilotApp(App):
             self._start_ai(pr.text)
             return
         if pr.kind == "unknown":
-            self.query_one("#chat", RichLog).write(
+            self.query_one("#chat", ChatLog).write(
                 "\n[dim]未知命令。输入 [bold]/help[/bold] 查看可用命令[/dim]")
             return
 
@@ -252,7 +252,7 @@ class CodePilotApp(App):
 
     def _start_ai(self, text: str) -> None:
         """启动一轮对话:清输入、写 You、置流式、run_worker(_process_chat)。"""
-        log = self.query_one("#chat", RichLog)
+        log = self.query_one("#chat", ChatLog)
         inp = self.query_one("#prompt", TextArea)
         inp.disabled = True
         log.write(f"\n[bold green]❯ You[/bold green]  {text}")
@@ -283,11 +283,11 @@ class CodePilotApp(App):
         self._apply_modes()
         label = "计划模式（只读工具）" if axis is ToolAxis.PLAN else "执行模式（全部工具）"
         if announce:
-            self.query_one("#chat", RichLog).write(f"\n[dim]── 已切换：{label}[/dim]")
+            self.query_one("#chat", ChatLog).write(f"\n[dim]── 已切换：{label}[/dim]")
         self.query_one("#prompt", TextArea).clear()
 
-    def _chat_log(self) -> RichLog:
-        return self.query_one("#chat", RichLog)
+    def _chat_log(self) -> ChatLog:
+        return self.query_one("#chat", ChatLog)
 
     def _set_release(self, policy: ReleasePolicy) -> None:
         self._mode_state.set_release(policy)
@@ -318,10 +318,10 @@ class CodePilotApp(App):
             if self._memory_injector is not None else 0
 
     def _clear_display(self) -> None:
-        """/clear:清空屏显示(RichLog),保留会话历史与上下文。
+        """/clear:清空屏显示(ChatLog),保留会话历史与上下文。
         同时联动复位已激活的 Skill(激活态+白名单)与 Hook 注入块(state15/16),
         但保留已注册的 skill 命令。"""
-        self.query_one("#chat", RichLog).clear()
+        self.query_one("#chat", ChatLog).clear()
         if self._skill_manager is not None:
             self._skill_manager.deactivate_all()
             self._refresh_status()
@@ -470,7 +470,7 @@ class CodePilotApp(App):
         self._refresh_status()
 
     async def _process_chat(self, text: str, *, resume: bool = False) -> None:
-        log = self.query_one("#chat", RichLog)
+        log = self.query_one("#chat", ChatLog)
         inp = self.query_one("#prompt", TextArea)
         stream = self.query_one("#stream", Static)
         stream.update("▍ 生成中…")  # 流式占位:真实文本直接进可滚动 #chat(方案A)
@@ -557,8 +557,8 @@ class CodePilotApp(App):
                         stream.update("▍ 生成中…")
 
                 elif d.text:
-                    # 方案A:流式文本按整行刷入可滚动 #chat(生成中即可上滚,
-                    # RichLog 手动上滚会自动暂停 auto-follow,对齐 Claude Code)
+                    # 方案A:流式文本按整行刷入可滚动 #chat。上滚位置不被拽回
+                    # 由 ChatLog.write 承担(仅在位于底部时跟随,见 widgets/chat_log.py)
                     pending += d.text
                     while "\n" in pending:
                         line, _, pending = pending.partition("\n")

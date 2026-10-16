@@ -15,6 +15,7 @@ from codepilot.providers import BaseProvider
 from codepilot.tools.base import Tool
 from codepilot.tools.registry import ToolRegistry
 from codepilot.ui.app import CodePilotApp
+from codepilot.ui.widgets import ChatLog
 
 
 class _ReadTool(Tool):
@@ -132,6 +133,42 @@ async def test_tool_call_renders_one_line_in_chat():
         assert "✅" in joined and "文件内容" in joined
         tool_lines = [t for t in texts if "read" in t]
         assert len(tool_lines) == 1, "每工具只占一行"
+
+
+async def test_scroll_position_survives_writes():
+    """核心修复:上滚后继续流式写入,视图不被拽回底部(ChatLog)。"""
+    parts = [f"第{i}行 流式内容\n" for i in range(120)]
+    agent = Agent(_StreamProvider(parts), ToolRegistry(), workspace=None,
+                  stall_enabled=False)
+    app = CodePilotApp(agent)
+    async with app.run_test(size=(120, 40)) as pilot:
+        inp = app.query_one("#prompt")
+        inp.text = "写长回答"
+        await pilot.press("enter")
+        chat = app.query_one("#chat", ChatLog)
+        for _ in range(200):
+            await pilot.pause(0.02)
+            if app._streaming and len(chat.lines) >= 50:
+                break
+        assert app._streaming
+        chat.scroll_up(animate=False)
+        await pilot.pause(0.03)
+        pos = chat.scroll_y
+        assert pos < chat.max_scroll_y, "上滚后应离开底部"
+        # 继续流式写入 → 位置必须保持(不因新行 write 被拽回底部)
+        for _ in range(30):
+            await pilot.pause(0.02)
+        assert chat.scroll_y == pos, (
+            f"上滚后写入不应拽回底部 (before={pos}, now={chat.scroll_y}, max={chat.max_scroll_y})")
+        # 回到底部后,重新跟随
+        chat.scroll_end(animate=False)
+        await pilot.pause(0.03)
+        assert chat.scroll_y >= chat.max_scroll_y - 1
+        # 等生成完全结束再退出(避免 worker 取消的 CancelledError 噪音)
+        for _ in range(120):
+            await pilot.pause(0.05)
+            if not app._streaming:
+                break
 
 
 async def test_streaming_chunk_without_newline_buffered():
