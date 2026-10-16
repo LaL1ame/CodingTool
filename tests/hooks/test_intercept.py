@@ -176,6 +176,31 @@ class TestToolPost:
         assert posts[0]["ok"] is True  # spy 绕过引擎字符串化，看到的是原始 bool
 
 
+class TestUserMessage:
+    async def test_user_message_fires_not_on_resume(self):
+        from codepilot.chat import ChatManager
+
+        reg = ToolRegistry(); reg.register(_SlowTool("read"))
+        seen = []
+
+        class _SpyEngine(HookEngine):
+            def __init__(self):
+                super().__init__([], HookInjector())
+
+            async def fire(self, event, fields):
+                seen.append((event, dict(fields)))
+
+        agent = _agent(_one_call_rounds("read"), _SpyEngine(), registry=reg)
+        chat = ChatManager(agent, hooks=agent._hooks)
+        deltas = [d async for d in chat.send_message("hello")]
+        assert any(d.done for d in deltas)
+        msgs = [f for e, f in seen if e == "user_message"]
+        assert msgs == [{"text": "hello"}]
+        # resume 续接不重发 user_message
+        await _collect(agent, [])
+        assert len([e for e, _ in seen if e == "user_message"]) == 1
+
+
 class TestRoundAndStop:
     async def test_round_start_fires_each_round_and_stop_done(self):
         reg = ToolRegistry(); reg.register(_SlowTool("read"))

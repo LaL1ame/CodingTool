@@ -21,12 +21,15 @@ class ChatManager:
     def __init__(self, agent: Agent, history: list[Message] | None = None,
                  session_file: str | Path | None = None,
                  msgs: list[dict] | None = None,
-                 auto_memory: Callable[[list[dict]], None] | None = None) -> None:
+                 auto_memory: Callable[[list[dict]], None] | None = None,
+                 hooks=None) -> None:
         self.agent = agent
         self.history: list[Message] = list(history) if history else []
         self.session_file = Path(session_file) if session_file else None
         # state13:自然停(done)后的记忆调度回调;接收 _msgs 快照,内部 fire-and-forget。
         self._auto_memory = auto_memory
+        # state16:可选 Hook 引擎(user_message 发射点);None 时短路。
+        self._hooks = hooks
         # F0:持久化的完整 LLM 消息序列（协议原生 dict）。
         # agent.run 原地向上追加助手消息与工具结果；跨 send_message 调用保持同一
         # 对象 → 工具结果跨轮存活,且 tool_use/tool_result 的 id 天然配对。
@@ -90,6 +93,9 @@ class ChatManager:
             self.history.append(Message(role="user", content=content))
             self._record("user", content)
             self._msgs.append({"role": "user", "content": content})
+        # state16: user_message 发射点（消息已入历史、送入模型前）
+        if self._hooks is not None and not resume:
+            await self._hooks.fire("user_message", {"text": content})
         ctx = self.build_context()
         full: list[str] = []
         round_text: list[str] = []     # 当前轮已收文本(state12:用于补写 assistant 行)
