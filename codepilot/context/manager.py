@@ -12,6 +12,7 @@ compaction 作用在 chat._msgs(LLM 真正看到的序列)。通过把摘要+边
 """
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -65,6 +66,8 @@ class ContextManager:
         self.offloader = ToolResultOffloader(offload_dir or Path.cwd() / ".codepilot" / "context")
         self.compactor = Compactor()
         self._overview = ""
+        # state16: compact 事件发射回调(main 接线到 HookEngine.fire)。不 import hooks。
+        self.on_compact: Callable[[], Awaitable[None]] | None = None
 
     def attach_chat(self, chat: "ChatManager") -> None:
         """TUI on_mount 后补绑 chat(main 构建时 chat 尚未创建)。"""
@@ -138,6 +141,8 @@ class ContextManager:
             self._overview = result.summary
             self.budget.summarize_succeeded()
             self.budget.anchor(self._estimate_msgs())  # 结构已变,重锚估
+            if self.on_compact is not None:
+                await self.on_compact()  # state16: compact 发射点(压缩成功后才发)
             return result
         except Exception:
             self.budget.register_summarize_failure()

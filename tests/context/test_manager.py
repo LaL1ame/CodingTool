@@ -74,6 +74,31 @@ def test_manual_compact_rewrites_msgs():
     assert "重新读取" in flat
 
 
+def test_on_compact_callback_fires_after_success():
+    # state16: compact 事件发射点 —— 压缩成功末尾触发 on_compact；无早期可压不触发。
+    msgs = [
+        {"role": "user", "content": [{"type": "text", "text": "go"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "doing work"}]},
+        {"role": "user", "content": [{"type": "text", "text": "keep me recent"}]},
+    ]
+    mgr, cm, _ = _fresh(msgs, config=_cfg_min_msgs(keep_min=1))
+    fired = []
+
+    async def _cb():
+        fired.append("compact")
+
+    mgr.on_compact = _cb
+    res = asyncio.run(mgr.compact_manual())
+    assert res is not None
+    assert fired == ["compact"]
+
+    # 无可压 → 不触发
+    single, _, _ = _fresh([{"role": "user", "content": [{"type": "text", "text": "x"}]}])
+    single.on_compact = _cb
+    assert asyncio.run(single.compact_manual()) is None
+    assert fired == ["compact"]
+
+
 def test_manual_compact_respects_message_boundary():
     msgs = [{"role": "user", "content": [{"type": "text", "text": "only one"}]}]
     mgr, cm, _ = _fresh(msgs)
