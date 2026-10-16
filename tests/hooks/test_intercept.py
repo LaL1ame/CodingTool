@@ -62,7 +62,8 @@ def _one_call_rounds(tool_name="read"):
 class TestToolPreIntercept:
     async def test_denied_tool_not_executed_and_reason_fed_back(self):
         tool = _SpyTool("run")
-        reg = ToolRegistry(); reg.register(tool)
+        reg = ToolRegistry()
+        reg.register(tool)
         engine = HookEngine(
             [_cmd_rule(f'"{PY}" -c "import sys; sys.stderr.write(\\"危险命令\\"); sys.exit(1)"')],
             HookInjector())
@@ -77,7 +78,8 @@ class TestToolPreIntercept:
 
     async def test_allowed_when_exit_zero(self):
         tool = _SpyTool("run")
-        reg = ToolRegistry(); reg.register(tool)
+        reg = ToolRegistry()
+        reg.register(tool)
         engine = HookEngine([_cmd_rule(f'"{PY}" -c "pass"')], HookInjector())
         agent = _agent(_one_call_rounds("run"), engine, registry=reg)
         deltas = await _collect(agent, [])
@@ -95,7 +97,8 @@ class TestToolPreIntercept:
         monkeypatch.setattr(engine_mod, "run_command", _boom)
 
         tool = _SpyTool("run")
-        reg = ToolRegistry(); reg.register(tool)
+        reg = ToolRegistry()
+        reg.register(tool)
         engine = HookEngine([_cmd_rule("whatever")], HookInjector())
         agent = _agent(_one_call_rounds("run"), engine, registry=reg)
         deltas = await _collect(agent, [])
@@ -104,7 +107,8 @@ class TestToolPreIntercept:
 
     async def test_fail_open_on_hook_timeout(self):
         tool = _SpyTool("run")
-        reg = ToolRegistry(); reg.register(tool)
+        reg = ToolRegistry()
+        reg.register(tool)
         rule = HookRule(
             event="tool_pre", condition=None,
             action=HookAction(type="command",
@@ -120,7 +124,8 @@ class TestToolPreIntercept:
     async def test_condition_scopes_interception(self):
         # 条件只拦 run 且 command 含 rm；本调用是 ls → 不拦
         tool = _SpyTool("run")
-        reg = ToolRegistry(); reg.register(tool)
+        reg = ToolRegistry()
+        reg.register(tool)
         c = Condition(mode="all", items=(
             CondItem("tool", "run"), CondItem("command", "*rm -rf*")))
         engine = HookEngine(
@@ -132,7 +137,8 @@ class TestToolPreIntercept:
 
     async def test_permission_deny_skips_hook(self):
         tool = _SpyTool("run")
-        reg = ToolRegistry(); reg.register(tool)
+        reg = ToolRegistry()
+        reg.register(tool)
 
         class _SpyEngine(HookEngine):
             def __init__(self):
@@ -158,7 +164,8 @@ class TestToolPreIntercept:
 
 class TestToolPost:
     async def test_tool_post_fires_with_ok(self):
-        reg = ToolRegistry(); reg.register(_SlowTool("read"))
+        reg = ToolRegistry()
+        reg.register(_SlowTool("read"))
         seen = []
 
         class _SpyEngine(HookEngine):
@@ -180,7 +187,8 @@ class TestUserMessage:
     async def test_user_message_fires_not_on_resume(self):
         from codepilot.chat import ChatManager
 
-        reg = ToolRegistry(); reg.register(_SlowTool("read"))
+        reg = ToolRegistry()
+        reg.register(_SlowTool("read"))
         seen = []
 
         class _SpyEngine(HookEngine):
@@ -203,7 +211,8 @@ class TestUserMessage:
 
 class TestRoundAndStop:
     async def test_round_start_fires_each_round_and_stop_done(self):
-        reg = ToolRegistry(); reg.register(_SlowTool("read"))
+        reg = ToolRegistry()
+        reg.register(_SlowTool("read"))
         seen = []
 
         class _SpyEngine(HookEngine):
@@ -221,7 +230,8 @@ class TestRoundAndStop:
         assert stops == [{"reason": "done"}]
 
     async def test_stop_fires_on_limit(self):
-        reg = ToolRegistry(); reg.register(_SlowTool("read"))
+        reg = ToolRegistry()
+        reg.register(_SlowTool("read"))
         seen = []
 
         class _SpyEngine(HookEngine):
@@ -240,7 +250,8 @@ class TestRoundAndStop:
         assert stops == [{"reason": "limit"}]
 
     async def test_no_hooks_behavior_unchanged(self):
-        reg = ToolRegistry(); reg.register(_SlowTool("read"))
+        reg = ToolRegistry()
+        reg.register(_SlowTool("read"))
         provider = _MockProvider(rounds=_one_call_rounds("read"))
         agent = Agent(provider, reg, workspace=None, stall_enabled=False)
         deltas = await _collect(agent, [])

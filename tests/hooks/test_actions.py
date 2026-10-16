@@ -1,6 +1,5 @@
 """state16 T5：四动作执行器。"""
 
-import json
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
