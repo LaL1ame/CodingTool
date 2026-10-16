@@ -29,21 +29,6 @@ Header {
     padding: 0 1;
 }
 
-/* 工具调用 gutter：追加进会话滚动区,持久保留 */
-#tools {
-    height: auto;
-    max-height: 20;
-    background: #1a1a22;
-    color: #d0d0d8;
-    padding: 0 1;
-}
-
-ToolRow {
-    height: auto;
-    background: transparent;
-    color: #d0d0d8;
-}
-
 /* 输入提示行 */
 #prompt-hint {
     height: auto;

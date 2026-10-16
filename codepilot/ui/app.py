@@ -2,7 +2,7 @@
 
 承接旧 codepilot/app.py 的编排逻辑,迁入 ui/ 包:
 - 用 StatusBar 底部状态栏(tcss dock),Header 的 sub_title 退居次要。
-- 工具调用以 ToolRow 追加进会话滚动区(不再每轮清空)。
+- 工具调用每工具一行写入会话滚动区(方案A,结果内嵌 ✅/✕)。
 - 修正 token 为会话级累计。
 模式状态机(T2)、就地流式(T4后续)、权限屏已引入。
 """
@@ -15,7 +15,6 @@ import time
 from collections.abc import Callable
 
 from textual.app import App, ComposeResult
-from textual.containers import Vertical
 from textual.widgets import Footer, Header, RichLog, Static, TextArea
 
 from codepilot.agent import Agent
@@ -35,7 +34,8 @@ from codepilot.providers import BaseProvider
 from codepilot.skills import BUILTIN_DIR as _SKILL_BUILTIN_DIR
 from codepilot.permissions.mode import PermissionMode
 from codepilot.permissions.policy import HumanChoice
-from codepilot.ui.widgets import PromptInput, StatusBar, ToolRow
+from codepilot.ui import palette
+from codepilot.ui.widgets import PromptInput, StatusBar
 
 _log = logging.getLogger("codepilot.ui.app")
 
@@ -93,7 +93,8 @@ class CodePilotApp(App):
         self._chat: ChatManager | None = None
         self._streaming = False
         self._stream_start: float = 0.0
-        self._tool_rows: dict[str, object] = {}
+        # state16 方案A:待结果的工具登记表 id → (name, params);结果到达即写一行入 #chat
+        self._tool_rows: dict[str, tuple[str, str]] = {}
         # 会话级累计 token(修正:单轮覆盖的问题)
         self._tokens_in: int = 0
         self._tokens_out: int = 0
@@ -179,7 +180,6 @@ class CodePilotApp(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield RichLog(id="chat", highlight=True, markup=True, wrap=True)
-        yield Vertical(id="tools")      # 工具 gutter:持久追加
         yield Static("", id="stream")
         yield Static("Enter 发送 · Ctrl+J 换行 · 支持多行(可粘贴)  (/exit /plan /do)", id="prompt-hint")
         yield PromptInput(id="prompt", soft_wrap=True, completer=self.completer)  # soft_wrap:长行折行自适应;completer:Tab补全(state14)
@@ -473,9 +473,7 @@ class CodePilotApp(App):
         log = self.query_one("#chat", RichLog)
         inp = self.query_one("#prompt", TextArea)
         stream = self.query_one("#stream", Static)
-        tools_container = self.query_one("#tools", Vertical)
         stream.update("▍ 生成中…")  # 流式占位:真实文本直接进可滚动 #chat(方案A)
-        tools_container.remove_children()  # 瞬时面板按轮清空(已定型的历史写入 chat 滚动区)
         self._tool_rows.clear()
 
         pending = ""  # 未到换行符的流式残留(按整行刷入 #chat)
@@ -536,25 +534,27 @@ class CodePilotApp(App):
                     self._refresh_status()
 
                 if d.tool_calls:
+                    names: list[str] = []
                     for tc in d.tool_calls:
                         params = self._format_params(tc.arguments)
-                        row = ToolRow(tc.id, tc.name, params)
-                        self._tool_rows[tc.id] = row
-                        tools_container.mount(row)
+                        self._tool_rows[tc.id] = (tc.name, params)
+                        names.append(tc.name)
+                    # 方案A:进行中的工具只更新占位(不占滚动行),结果到达才写一行
+                    stream.update(f"▍ 执行工具: {', '.join(names)} …")
 
                 elif d.tool_result:
                     tr = d.tool_result
-                    row = self._tool_rows.get(tr.call_id)
-                    if row:
-                        if tr.error:
-                            row.set_error(tr.error)
-                        else:
-                            row.set_done(self._format_result(tr))
+                    info = self._tool_rows.pop(tr.call_id, None)
+                    name = info[0] if info else tr.name
+                    params = info[1] if info else ""
+                    if tr.error:
+                        short = tr.error[:80] + "..." if len(tr.error) > 80 else tr.error
+                        status = f"[bold red]✕ {short}[/bold red]"
                     else:
-                        if tr.error:
-                            log.write(f"\n[red]✕ {tr.name}[/red]: {tr.error}")
-                        else:
-                            log.write(f"\n[dim]● {tr.name}: {self._format_result(tr)}[/dim]")
+                        status = f"[green]✅ {self._format_result(tr)}[/green]"
+                    log.write(self._tool_line(name, params, status))
+                    if not self._tool_rows:
+                        stream.update("▍ 生成中…")
 
                 elif d.text:
                     # 方案A:流式文本按整行刷入可滚动 #chat(生成中即可上滚,
@@ -569,7 +569,10 @@ class CodePilotApp(App):
                     if pending:
                         log.write(pending)
                         pending = ""
-                    self._flush_tool_rows(log, tools_container)
+                    # 兜底:异常中断下仍有未出结果的调用,写成待定行(正常路径结果已逐一写入)
+                    for (name, params) in self._tool_rows.values():
+                        log.write(self._tool_line(name, params, "[dim]… 无结果[/dim]"))
+                    self._tool_rows.clear()
                     elapsed = time.time() - self._stream_start
                     log.write(f"\n[dim]── {elapsed:.1f}s[/dim]")
                     return
@@ -579,28 +582,12 @@ class CodePilotApp(App):
         finally:
             try:
                 stream.update("")
-                tools_container.remove_children()
             except Exception:
                 pass
             self._tool_rows.clear()
             self._stop_timer()
             inp.disabled = False
             self._streaming = False
-
-    def _flush_tool_rows(self, log: RichLog, tools_container: Vertical) -> None:
-        """把本轮的已定型工具行写入可滚动会话区,再清空瞬时面板。
-
-        使工具历史随对话滚动(可回溯),不占固定屏幕高度 —— 对齐 Claude Code。
-        """
-        if self._tool_rows:
-            log.write("\n")
-            for row in list(self._tool_rows.values()):
-                log.write(row.line())
-        try:
-            tools_container.remove_children()
-        except Exception:
-            pass
-        self._tool_rows.clear()
 
     async def ask_permission(self, tool: str, subject: str) -> HumanChoice:
         from codepilot.ui.screens import PermissionScreen
@@ -641,6 +628,13 @@ class CodePilotApp(App):
         self._refresh_status()
 
     # —— 其它辅助(原样) ——
+    @staticmethod
+    def _tool_line(name: str, params: str, status: str) -> str:
+        """工具一行(方案A): icon name (params) status —— 直接进可滚动 #chat。"""
+        color = palette.tool_color(name)
+        icon = palette.tool_icon(name)
+        return f"[{color}]{icon}[/{color}] [bold]{name}[/bold] ({params}) {status}"
+
     @staticmethod
     def _format_params(arguments: dict) -> str:
         parts = []
