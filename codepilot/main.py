@@ -184,13 +184,26 @@ def main() -> None:
     )
     registry.register(_skills.LoadSkillTool(skill_manager))  # 系统工具,不受白名单约束
 
+    # —— Hook 系统(state16):两级 .hooks.yaml 加载 + 引擎 + 注入器(fail-fast) ——
+    from codepilot.hooks import HookEngine, HookInjector, HookError, load_hooks
+    try:
+        hook_rules = load_hooks(workspace / ".hooks.yaml",
+                                Path.home() / ".hooks.yaml")
+    except HookError as e:
+        print(f"Hook configuration error: {e}", file=sys.stderr)
+        sys.exit(1)
+    hook_injector = HookInjector()
+    hook_engine = HookEngine(hook_rules, hook_injector)
+
     agent = Agent(provider=provider, registry=registry, workspace=workspace,
                   max_rounds=agent_config.max_rounds, max_unknown=agent_config.max_unknown,
                   env=env, refresh_every=agent_config.prompt_refresh_every,
                   permission=permission, context_manager=context_manager,
                   memory_injector=memory.build,
                   skill_injector=skill_manager.skill_blocks,
-                  skill_whitelist=skill_manager.active_whitelist)
+                  skill_whitelist=skill_manager.active_whitelist,
+                  hooks=hook_engine,
+                  hook_injector=hook_injector.hook_blocks)
 
     # —— 会话 resume(state12)：-c 续最近 / -r 列表选择 / --new 强制新开;
     #    默认按 session.auto_resume 自动接最近。恢复走 restore_chat(截断/提醒),
@@ -222,7 +235,12 @@ def main() -> None:
                        seed_msgs=restored.get("messages"),
                        auto_memory=auto_memory_cb,
                        memory_injector=memory,
-                       skill_manager=skill_manager)
+                       skill_manager=skill_manager,
+                       hook_engine=hook_engine,
+                       hook_injector=hook_injector)
+
+    # state16: compact 事件发射接线（ContextManager 不 import hooks，回调由 main 接）
+    context_manager.on_compact = lambda: hook_engine.fire("compact", {})
 
     # —— MCP:启动时连接并注册工具。必须与 App 同一事件循环——
     # app.run() 内部会自开一个 loop;若先用另一段 asyncio.run 连接 stdio/http
