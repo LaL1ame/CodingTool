@@ -89,6 +89,8 @@ class Agent:
         memory_injector: Callable[[], list[str]] | None = None,
         skill_injector: Callable[[], list[str]] | None = None,
         skill_whitelist: Callable[[], set[str] | None] | None = None,
+        hooks=None,
+        hook_injector: Callable[[], list[str]] | None = None,
         stall_enabled: bool = True,
         stall_repeat_k: int = 2,
         stall_window: int = 3,
@@ -111,6 +113,11 @@ class Agent:
         # 同样是「不透明 volatile 块 / 工具名集合回调」,Agent 不感知 skill 内部。
         self._skill_injector = skill_injector
         self._skill_whitelist = skill_whitelist
+        # state16:可选 Hook 引擎与注入器。Agent 只当它们是「不透明回调」:
+        # engine 暴露 fire/fire_pre_tool,injector 暴露 hook_blocks() ——
+        # 不感知 Hook 内部,零配置时全部短路(N5)。
+        self._hooks = hooks
+        self._hook_injector = hook_injector
         self._plan_mode = False
         self._stall_enabled = stall_enabled
         self._stall_msg = stall_msg
@@ -161,9 +168,14 @@ class Agent:
             yield Delta(round=round_num, max_rounds=self._max_rounds)
             self._logger.info("round %d/%d start", round_num, self._max_rounds)
 
+            # state16: round_start 发射点（在本轮提示重建前,注入当轮即可见）
+            if self._hooks is not None:
+                await self._hooks.fire("round_start", {"round": round_num})
+
             # —— 每轮重建分层系统提示（稳定前缀 + 动态尾块）——
             memory_blocks = self._memory_injector() if self._memory_injector else []
             skill_blocks = self._skill_injector() if self._skill_injector else []
+            hook_blocks = self._hook_injector() if self._hook_injector else []
             sp = build_system_prompt(
                 self._env or EnvContext(cwd=str(self._workspace), date=""),
                 plan_mode=self._plan_mode,
@@ -171,6 +183,7 @@ class Agent:
                 refresh_every=self._refresh_every,
                 memory_blocks=memory_blocks,
                 skill_blocks=skill_blocks,
+                hook_blocks=hook_blocks,
             )
             if self._plan_mode:
                 n_plan = sum(1 for b in sp.volatile if "session_instruction" in b)
@@ -211,6 +224,7 @@ class Agent:
                     round_num, "".join(text_parts)[:80],
                 )
                 self._append_assistant(messages, "".join(text_parts), [])
+                await self._emit_stop("done")
                 yield Delta(done=True)
                 return
 
@@ -232,6 +246,7 @@ class Agent:
                     "round %d stop: %d consecutive unknown tools (%s)",
                     round_num, self._max_unknown, ", ".join(names),
                 )
+                await self._emit_stop("unknown_tool")
                 yield Delta(paused=True, pause_reason="unknown_tool",
                             max_rounds=self._max_rounds,
                             error=None)  # N1:非 error,友好提示由 UI 呈现
@@ -244,6 +259,7 @@ class Agent:
                             max_rounds=self._max_rounds)
             if self._stall is not None and self._stall.should_stop():
                 self._logger.warning("round %d stall-stop: persistent repetition", round_num)
+                await self._emit_stop("stall")
                 yield Delta(paused=True, pause_reason="stall",
                             resume_round=round_num, max_rounds=self._max_rounds)
                 return
@@ -269,8 +285,14 @@ class Agent:
 
         self._logger.warning("stop: iteration limit %d reached", self._max_rounds)
         # F2: 达上限是可续接检查点,非 error —— 调用方可沿用同一 _msgs 续跑。
+        await self._emit_stop("limit")
         yield Delta(paused=True, pause_reason="limit",
                     resume_round=self._max_rounds, max_rounds=self._max_rounds)
+
+    async def _emit_stop(self, reason: str) -> None:
+        """state16: stop 发射点 —— done/limit/stall/unknown_tool 四出口收拢。"""
+        if self._hooks is not None:
+            await self._hooks.fire("stop", {"reason": reason})
 
     def _is_side_effect(self, tc: ToolCall) -> bool:
         tool = self._registry.get(tc.name)
@@ -285,6 +307,12 @@ class Agent:
             if not decision.allow:
                 self._logger.warning("deny %s: %s", tc.name, decision.reason)
                 return ToolResult(call_id=tc.id, name=tc.name, error=f"权限拒绝: {decision.reason}")
+        # state16: tool_pre 发射点（权限通过之后、执行之前;拦截 → 原因当工具结果回灌）
+        if self._hooks is not None:
+            reason = await self._hooks.fire_pre_tool(tc.name, dict(tc.arguments))
+            if reason is not None:
+                self._logger.info("hook 拦截 %s: %s", tc.name, reason)
+                return ToolResult(call_id=tc.id, name=tc.name, error=f"Hook 拦截: {reason}")
         try:
             kwargs = dict(tc.arguments)
             result = await asyncio.wait_for(tool.execute(**kwargs), timeout=self._timeout)
@@ -292,13 +320,18 @@ class Agent:
                 result.call_id = tc.id
             if not result.name:
                 result.name = tc.name
-            return result
         except asyncio.CancelledError:
             return ToolResult(call_id=tc.id, name=tc.name, error="已取消")
         except asyncio.TimeoutError:
-            return ToolResult(call_id=tc.id, name=tc.name, error=f"工具执行超时 ({self._timeout:.0f}s)")
+            result = ToolResult(call_id=tc.id, name=tc.name, error=f"工具执行超时 ({self._timeout:.0f}s)")
         except Exception as e:
-            return ToolResult(call_id=tc.id, name=tc.name, error=f"工具执行异常: {e}")
+            result = ToolResult(call_id=tc.id, name=tc.name, error=f"工具执行异常: {e}")
+        # state16: tool_post 发射点（权限拒绝/未知工具/取消走不到这里）
+        if self._hooks is not None:
+            await self._hooks.fire(
+                "tool_post",
+                {"tool": tc.name, **dict(tc.arguments), "ok": result.error is None})
+        return result
 
     async def _execute_batched(self, tool_calls: list[ToolCall]) -> list[ToolResult]:
         """按安全性分批：副作用工具为「栅栏」（串行），栅栏间的只读工具并发。"""

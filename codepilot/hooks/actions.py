@@ -6,7 +6,10 @@
 
 import asyncio
 import json
+import locale
 import logging
+import os
+import subprocess
 import urllib.request
 from dataclasses import dataclass
 from string import Formatter
@@ -42,6 +45,31 @@ class CommandOutcome:
     error: str = ""            # 启动失败等异常（非进程退出码）
 
 
+def _kill_tree(proc: asyncio.subprocess.Process) -> None:
+    """杀掉整个进程树，避免超时/取消后孤儿进程握着管道句柄不放。
+
+    Windows: shell(cmd)自身被杀不足以终结孙进程，用 taskkill /T 连树杀；
+    其它平台直接 kill。
+    """
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                capture_output=True, timeout=3)
+        else:
+            proc.kill()
+    except Exception as e:
+        logger.debug("hook command 进程树清理失败: %s", e)
+
+
+async def _bounded_wait(proc: asyncio.subprocess.Process) -> None:
+    """杀树后有界等待回收；仍不退出就放弃（记日志，不阻塞调用方）。"""
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=2.0)
+    except asyncio.TimeoutError:
+        logger.debug("hook command 进程树未能完全回收，放任残余进程退出")
+
+
 async def run_command(cmd: str, fields: dict, timeout: float,
                       event: str = "", tool: str = "") -> CommandOutcome:
     """执行 shell 命令。事件上下文经环境变量传给子进程。"""
@@ -50,7 +78,6 @@ async def run_command(cmd: str, fields: dict, timeout: float,
         "CODEPILOT_TOOL": tool,
         "CODEPILOT_TOOL_ARGS": json.dumps(fields, ensure_ascii=False, default=str),
     }
-    import os
     env = {**os.environ, **env_extra}
     try:
         proc = await asyncio.create_subprocess_shell(
@@ -64,19 +91,26 @@ async def run_command(cmd: str, fields: dict, timeout: float,
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
-        proc.kill()
-        try:
-            # Windows: shell(cmd)被杀但孙进程可能继承管道句柄存活，
-            # wait() 会等到管道关闭 → 有界等待，孤儿进程任其自行退出。
-            await asyncio.wait_for(proc.wait(), timeout=2.0)
-        except asyncio.TimeoutError:
-            logger.debug("hook command 超时后进程树未能完全收尾，放任孤儿退出")
+        _kill_tree(proc)
+        await _bounded_wait(proc)
         return CommandOutcome(exit_code=-1, stdout="", stderr="", timed_out=True)
+    except asyncio.CancelledError:
+        _kill_tree(proc)
+        await _bounded_wait(proc)
+        raise
     return CommandOutcome(
         exit_code=proc.returncode or 0,
-        stdout=out.decode("utf-8", errors="replace"),
-        stderr=err.decode("utf-8", errors="replace"),
+        stdout=_decode(out),
+        stderr=_decode(err),
     )
+
+
+def _decode(raw: bytes) -> str:
+    """子进程输出解码：先 UTF-8，失败回落系统区域编码（中文 Windows GBK）。"""
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode(locale.getpreferredencoding(False), errors="replace")
 
 
 async def run_http(url: str, method: str = "POST",
