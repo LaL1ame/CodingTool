@@ -38,3 +38,6 @@ skills-lock.json
 
 # state9 人工验收用大源文件(测试残留,不入 git)
 thousands.py
+
+# state16 Hook 运行时配置(同 config.yaml,不入 git)
+.hooks.yaml

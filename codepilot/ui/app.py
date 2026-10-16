@@ -474,11 +474,11 @@ class CodePilotApp(App):
         inp = self.query_one("#prompt", TextArea)
         stream = self.query_one("#stream", Static)
         tools_container = self.query_one("#tools", Vertical)
-        stream.update("")
+        stream.update("▍ 生成中…")  # 流式占位:真实文本直接进可滚动 #chat(方案A)
         tools_container.remove_children()  # 瞬时面板按轮清空(已定型的历史写入 chat 滚动区)
         self._tool_rows.clear()
 
-        buf: list[str] = []
+        pending = ""  # 未到换行符的流式残留(按整行刷入 #chat)
         try:
             # 层2自动触发:仅在真实新消息前判断(续接沿用历史,不重复压缩)
             if not resume and self._context_manager is not None:
@@ -489,17 +489,26 @@ class CodePilotApp(App):
             async for d in self._chat.send_message(text, resume=resume):
                 if d.error:
                     stream.update("")
+                    if pending:
+                        log.write(pending)
+                        pending = ""
                     log.write(f"\n[bold red]❌ Error[/bold red]  {d.error}")
                     return
 
                 if d.cancelled:
                     stream.update("")
+                    if pending:
+                        log.write(pending)
+                        pending = ""
                     log.write("\n[dim]── 已取消[/dim]")
                     return
 
                 if d.paused:
                     # F2/F5 + N1:达上限/空转/未知工具是可续接暂停,非 error
                     stream.update("")
+                    if pending:
+                        log.write(pending)
+                        pending = ""
                     reason = d.pause_reason
                     if reason == "limit":
                         log.write(
@@ -548,13 +557,19 @@ class CodePilotApp(App):
                             log.write(f"\n[dim]● {tr.name}: {self._format_result(tr)}[/dim]")
 
                 elif d.text:
-                    buf.append(d.text)
-                    stream.update("".join(buf))
+                    # 方案A:流式文本按整行刷入可滚动 #chat(生成中即可上滚,
+                    # RichLog 手动上滚会自动暂停 auto-follow,对齐 Claude Code)
+                    pending += d.text
+                    while "\n" in pending:
+                        line, _, pending = pending.partition("\n")
+                        log.write(line)
 
                 if d.done:
                     stream.update("")
+                    if pending:
+                        log.write(pending)
+                        pending = ""
                     self._flush_tool_rows(log, tools_container)
-                    log.write("\n" + "".join(buf))
                     elapsed = time.time() - self._stream_start
                     log.write(f"\n[dim]── {elapsed:.1f}s[/dim]")
                     return
