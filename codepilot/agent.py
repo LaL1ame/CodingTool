@@ -152,6 +152,19 @@ class Agent:
         for task in list(self._tool_tasks):
             task.cancel()
 
+    def visible_tool_names(self) -> set[str]:
+        """当前可见工具名集合（state17：Fork 式继承父工具集用）。
+
+        复用 _build_tools 的过滤链（skill 白名单/plan/tool_filter），再按协议
+        形态提取名字——不改动既有过滤语义。
+        """
+        tools = self._build_tools()
+        if not tools:
+            return set()
+        if self._protocol == "anthropic":
+            return {t.get("name", "") for t in tools}
+        return {t.get("function", {}).get("name", "") for t in tools}
+
     def _build_tools(self) -> list[dict] | None:
         # state15: 可见工具 = 全量 ∩(白名单∪系统工具) ∩(plan仅只读)。
         all_tools = self._registry.list_all()

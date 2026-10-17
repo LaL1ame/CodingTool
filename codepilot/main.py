@@ -205,6 +205,25 @@ def main() -> None:
                   hooks=hook_engine,
                   hook_injector=hook_injector.hook_blocks)
 
+    # —— SubAgent 系统(state17):角色四级加载 + 委派中心 + 常驻 agent 工具 ——
+    from codepilot.subagents import AgentTool, RoleError, SubAgentManager, load_all
+    try:
+        role_map = load_all(
+            workspace,
+            check_tools=lambda n: n == "agent" or registry.get(n) is not None)
+    except RoleError as e:
+        print(f"SubAgent configuration error: {e}", file=sys.stderr)
+        sys.exit(1)
+    subagent_manager = SubAgentManager(
+        role_map,
+        workspace=workspace, provider=provider, registry=registry, env=env,
+        ctx_config=ctx_config, shared_hooks=hook_engine,
+        parent_permission=permission,
+        max_rounds=agent_config.max_rounds,
+    )
+    registry.register(AgentTool(subagent_manager))  # 系统级常驻工具
+    # 父上下文/工具集取数在 App.on_mount 接线（ChatManager 尚未创建）。
+
     # —— 会话 resume(state12)：-c 续最近 / -r 列表选择 / --new 强制新开;
     #    默认按 session.auto_resume 自动接最近。恢复走 restore_chat(截断/提醒),
     #    完整 LLM 序列作 seed_msgs 回灌 ChatManager,工具上下文跨重启保留 ——
@@ -237,7 +256,8 @@ def main() -> None:
                        memory_injector=memory,
                        skill_manager=skill_manager,
                        hook_engine=hook_engine,
-                       hook_injector=hook_injector)
+                       hook_injector=hook_injector,
+                       subagent_manager=subagent_manager)
 
     # state16: compact 事件发射接线（ContextManager 不 import hooks，回调由 main 接）
     context_manager.on_compact = lambda: hook_engine.fire("compact", {})

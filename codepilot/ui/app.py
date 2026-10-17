@@ -62,7 +62,8 @@ class CodePilotApp(App):
              memory_injector=None,
              skill_manager=None,
              hook_engine=None,
-             hook_injector=None) -> None:
+             hook_injector=None,
+             subagent_manager=None) -> None:
         super().__init__()
         self._agent = agent
         self._context_manager = context_manager
@@ -71,6 +72,8 @@ class CodePilotApp(App):
         # state16: Hook 引擎与注入器(session_start/end 发射 + notify + /clear 联动)。
         self._hook_engine = hook_engine
         self._hook_injector = hook_injector
+        # state17: 子 Agent 委派中心（后台任务完成回灌 + /agents /bg 命令）。
+        self._subagent_manager = subagent_manager
         self._mode_state = ModeState(release=ReleasePolicy(release))
         if initial_modes:
             self._mode_state.restore(initial_modes)
@@ -132,6 +135,14 @@ class CodePilotApp(App):
         self.query_one("#prompt", TextArea).focus()  # 启动即把输入焦点交给 prompt(否则落在 ChatLog)
         self._refresh_status()
 
+        # state17: 子 Agent 接线——完成回灌主对话 + 父上下文/工具集取数（fork 继承）
+        if self._subagent_manager is not None:
+            self._subagent_manager.set_on_task_done(self._on_subagent_done)
+            self._subagent_manager.set_parent_msgs(
+                lambda: self._chat._msgs if self._chat is not None else [])
+            self._subagent_manager.set_parent_visible(
+                lambda: self._agent.visible_tool_names())
+
         # state16: session_start 发射 + notify 接线（app 就绪后才可写 ChatLog）
         if self._hook_engine is not None:
             self._hook_engine.notify = self._hook_notify
@@ -158,6 +169,29 @@ class CodePilotApp(App):
             self.query_one("#chat", ChatLog).write(f"\n[dim]{msg}[/dim]")
         except Exception as e:
             _log.warning("hook notify 写屏失败: %s", e)
+
+    def _on_subagent_done(self, task) -> None:
+        """state17: 后台子 Agent 完成回调——写系统行 + 摘要进主对话上下文（F6/D13）。
+
+        不自动触发新一轮：摘要作为一条 user 消息追加，模型下一条消息时可见。
+        """
+        try:
+            role = task.role or "fork"
+            usage = f" · {task.usage.input_tokens}t" if task.usage else ""
+            if task.status == "failed":
+                msg = f"[subagent] #{task.task_id} {role} 失败：{task.error}"
+            elif task.status == "cancelled":
+                msg = f"[subagent] #{task.task_id} {role} 已取消"
+            else:
+                msg = f"[subagent] #{task.task_id} {role} 完成{usage}"
+            self.query_one("#chat", ChatLog).write(f"\n[dim]{msg}[/dim]")
+            if task.status == "done" and task.summary and self._chat is not None:
+                self._chat._msgs.append({
+                    "role": "user",
+                    "content": f"【子任务 #{task.task_id}（{role}）完成】\n{task.summary}",
+                })
+        except Exception as e:
+            _log.warning("subagent done 写屏失败: %s", e)
 
     def _replay_history(self, log: ChatLog) -> None:
         """state12:恢复会话时,把上一段对话整段画回屏幕,可往上回滚。
@@ -668,6 +702,11 @@ class _CommandContextImpl(CommandContext):
 
     def __init__(self, app: CodePilotApp) -> None:
         self._app = app
+
+    @property
+    def subagent_manager(self):
+        """state17: /agents /bg 命令经 getattr 触达委派中心（协议不加方法，N3）。"""
+        return self._app._subagent_manager
 
     def show(self, message: str) -> None:
         self._app._chat_log().write("\n" + message)
