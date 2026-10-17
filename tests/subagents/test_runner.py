@@ -105,6 +105,59 @@ async def test_run_role_agent_error_raises():
         await run_role_agent(role, "x", depth=1, shared=shared)
 
 
+class _RecordingProvider(_MockProvider):
+    """记录每次 stream 收到的 messages（fork 裁剪断言用）。"""
+
+    def __init__(self):
+        super().__init__()
+        self.seen: list[list[dict]] = []
+
+    async def stream(self, messages, tools=None, system=None):
+        self.seen.append([dict(m) for m in messages])
+        async for d in super().stream(messages, tools=tools, system=system):
+            yield d
+
+
+async def test_fork_trims_dangling_tool_calls_anthropic():
+    """fork 发生时父末尾 assistant(tool_use) 无结果 → 必须裁掉，否则 400（真机回归）。"""
+    shared = _shared()
+    shared.provider = _RecordingProvider()
+    parent = [
+        {"role": "user", "content": "任务"},
+        {"role": "assistant", "content": [
+            {"type": "text", "text": "我来委派"},
+            {"type": "tool_use", "id": "t1", "name": "agent", "input": {}},
+        ]},
+    ]
+    await run_fork_agent("继续", parent_msgs=parent,
+                         parent_names=frozenset({"read"}), depth=1, shared=shared)
+    sent = shared.provider.seen[0]
+    # 无 dangling assistant tool_use
+    for m in sent:
+        if m.get("role") == "assistant" and isinstance(m.get("content"), list):
+            assert not any(b.get("type") == "tool_use" for b in m["content"])
+    # trigger 已并入末条 user（无连续同角色）
+    assert sent[-1]["role"] == "user"
+    assert "请基于当前上下文执行" in str(sent[-1]["content"])
+
+
+async def test_fork_trims_dangling_tool_calls_openai():
+    shared = _shared()
+    shared.provider = _RecordingProvider()
+    parent = [
+        {"role": "user", "content": "任务"},
+        {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "c1", "type": "function",
+             "function": {"name": "agent", "arguments": "{}"}}]},
+    ]
+    await run_fork_agent("继续", parent_msgs=parent,
+                         parent_names=frozenset({"read"}), depth=1, shared=shared)
+    sent = shared.provider.seen[0]
+    assert all(not m.get("tool_calls") for m in sent)
+    assert sent[-1]["role"] == "user"
+    assert "请基于当前上下文执行" in str(sent[-1]["content"])
+
+
 async def test_fork_inherits_parent_msgs_deepcopy():
     from codepilot.protocols import Delta
     shared = _shared()

@@ -201,10 +201,10 @@ async def run_fork_agent(
 ) -> "tuple[str, Usage | None]":
     """Fork 式（F4）：继承父历史与工具集，强制后台只读，首次请求命中 cache。
 
-    parent_msgs 深拷贝为初始消息（不共享引用），system 标准构建（D6）。
+    parent_msgs 深拷贝后**裁剪为协议合法前缀**（见 _fork_messages），system 标准构建（D6）。
     """
     trigger = f"请基于当前上下文执行：{prompt}"
-    msgs = [*_deep_copy(parent_msgs), {"role": "user", "content": trigger}]
+    msgs = _fork_messages(parent_msgs, trigger)
     provider = shared.provider
     ctx_mgr = ContextManager(provider=provider, config=shared.ctx_config)
     sub = Agent(
@@ -222,8 +222,36 @@ async def run_fork_agent(
     return await _collect(sub, msgs)
 
 
-def _deep_copy(msgs: list[dict]) -> list[dict]:
-    """深拷贝消息列表（嵌套 dict/list 也拷贝），保证隔离（F5）。"""
+def _has_tool_calls(msg: dict) -> bool:
+    """消息是否含未回灌的工具调用（OpenAI tool_calls / Anthropic tool_use 块）。"""
+    if msg.get("tool_calls"):
+        return True
+    content = msg.get("content")
+    if isinstance(content, list):
+        return any(
+            isinstance(b, dict) and b.get("type") == "tool_use" for b in content)
+    return False
+
+
+def _fork_messages(parent_msgs: list[dict], trigger: str) -> list[dict]:
+    """构造 Fork 初始消息：深拷贝父历史 + 裁剪 + 追加 trigger。
+
+    Fork 由主 Agent 在「当前轮工具执行中」发起：父 `_msgs` 末尾是
+    assistant(tool_calls=agent)，其结果尚未回灌。tool_use 后必须紧跟
+    tool_result，否则 Anthropic/OpenAI 都会 400 —— 故裁掉该 dangling 尾消息。
+    trigger 并入末条 user（若末条是 user），避免连续同角色。
+    """
     import copy
 
-    return copy.deepcopy(msgs)
+    msgs = copy.deepcopy(parent_msgs)
+    while msgs and _has_tool_calls(msgs[-1]):
+        msgs.pop()
+    if msgs and msgs[-1].get("role") == "user":
+        content = msgs[-1].get("content")
+        if isinstance(content, list):
+            msgs[-1]["content"] = [*content, {"type": "text", "text": trigger}]
+        else:
+            msgs[-1]["content"] = (content or "") + "\n\n" + trigger
+    else:
+        msgs.append({"role": "user", "content": trigger})
+    return msgs

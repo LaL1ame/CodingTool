@@ -244,9 +244,13 @@ class SubAgentManager:
             if fut.cancelled():
                 task.status = "cancelled"
             self._running.discard(task.task_id)
-            logger.info(
-                "subagent #%d %s done: status=%s chars=%d",
-                task.task_id, task.kind, task.status, len(task.summary))
+            if task.status == "failed":
+                logger.warning("subagent #%d %s failed: %s",
+                               task.task_id, task.kind, task.error)
+            else:
+                logger.info(
+                    "subagent #%d %s done: status=%s chars=%d",
+                    task.task_id, task.kind, task.status, len(task.summary))
             if self._on_task_done is not None:
                 self._on_task_done(task)
         except Exception as e:

@@ -17,6 +17,7 @@
 - 文件：`codepilot/subagents/*`、`agent.py`（tool_filter + visible_tool_names）、`ui/app.py`（回灌接线 + pending 队列）、`main.py`（装配 + AgentTool 注册）、`commands/builtins.py`（/agents /bg）、`pyproject.toml`、7 个测试文件。
 - 命令/快捷键：`/agents` 任务列表、`/bg <task_id>` 手动切后台；前台委派时输入框禁用，**Ctrl+B** 是 TUI 内切后台的可达入口。
 - **真机验收修正（场景1）**：模型不知道有哪些角色 → 不调 agent 工具而自己用 read/glob 干活。补「角色名册」注入（system prompt volatile 块 + agent 工具 description + role enum 动态生成）。
+- **真机验收修正（场景2）**：Fork 子 Agent HTTP 400（`status=failed chars=0`）——fork 发起时父 `_msgs` 末尾是 `assistant(tool_use=agent)` 且结果未回灌，直接继承会缺 `tool_result`。修复：`_fork_messages` 裁掉尾部 dangling tool_calls + trigger 并入末条 user；失败任务现在日志记 `task.error`。
 - 遗留 / 待确认：真机验收（5 场景）；`can_delegate` 默认 max_depth=1 下不生效，需配 2 才启用多级委派；插件层仅预留接口。
 - 新上手：读本文 + `docs/state17-subagent/{spec,plan,task,checklist}.md` 即可恢复。
 

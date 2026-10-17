@@ -11,6 +11,7 @@
 - [x] 角色名册可发现（真机验收修正）：system prompt volatile 块 + agent 工具 description/role enum 均列出角色（验证：`tests/subagents/test_manager.py`、`test_tool.py`、`tests/test_subagent_injection.py`）。
 - [x] 多层防线纯函数四场景：白名单∪系统 / 黑名单剔除 / agent 禁（can_delegate∧depth<max_depth 才可见）/ 后台与 plan 只读（验证：`tests/subagents/test_filters.py` 逐场景）。
 - [x] 定义式/Fork 独立 Agent 构造：共享 provider/registry/hooks，独立 permission/context_manager/msgs（验证：`tests/subagents/test_runner.py` mock provider）。
+- [x] Fork 历史协议合法化（真机验收修正）：裁剪父历史尾部未回灌的 tool_calls，避免 tool_use 后缺 tool_result 的 400（验证：`test_runner.py` 两种协议裁剪用例）。
 
 ## 集成
 
