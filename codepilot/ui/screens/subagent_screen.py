@@ -50,8 +50,14 @@ def _role_label(task) -> str:
 
 
 def _elapsed(task, now: float) -> float:
+    """终态用 finished_at（固定耗时）；运行中用 now（持续增长）。"""
     created = getattr(task, "created_at", 0.0) or 0.0
-    return max(0.0, now - created) if created else 0.0
+    finished = getattr(task, "finished_at", 0.0) or 0.0
+    if not created:
+        return 0.0
+    if finished:
+        return max(0.0, finished - created)
+    return max(0.0, now - created)
 
 
 def _usage_text(task) -> str:

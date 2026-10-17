@@ -111,6 +111,13 @@ class SubAgentManager:
             lines.append(f"- {role.name} — {role.description}")
         return "\n".join(lines)
 
+    @staticmethod
+    def _set_status(task: SubAgentTask, status: str) -> None:
+        """状态迁移；终态同时记录 finished_at（耗时展示用）。"""
+        task.status = status
+        if status in ("done", "failed", "cancelled"):
+            task.finished_at = time.time()
+
     def _require_role(self, role_name: str) -> AgentRole:
         role = self._known.get(role_name)
         if role is None:
@@ -189,7 +196,7 @@ class SubAgentManager:
                                       error=task.error or "子 Agent 失败")
                 if task.status == "cancelled":
                     return ToolResult(call_id="", name="agent", error="子 Agent 已取消")
-                task.status = "done"
+                self._set_status(task, "done")
                 return ToolResult(call_id="", name="agent",
                                   output=task.summary or "(无输出)")
             # marker 触发（/bg 手动切）或超时：转后台继续跑（D11/D12）
@@ -236,19 +243,19 @@ class SubAgentManager:
             task.summary = result.summary
             task.usage = result.usage
             task.entries = tuple(result.entries)
-            task.status = "done"
+            self._set_status(task, "done")
         except SubAgentError as e:
             task.error = str(e)
             # 失败也保留已产生的部分轨迹（F11）
             task.entries = tuple(getattr(e, "entries", None) or ())
-            task.status = "failed"
+            self._set_status(task, "failed")
         except asyncio.CancelledError:
-            task.status = "cancelled"
+            self._set_status(task, "cancelled")
             raise
         except Exception as e:  # 故障隔离（N2）
             logger.exception("subagent task %d 异常", task.task_id)
             task.error = f"内部异常: {e}"
-            task.status = "failed"
+            self._set_status(task, "failed")
         finally:
             _depth_ctx.reset(token)
             self._running.discard(task.task_id)
@@ -258,7 +265,7 @@ class SubAgentManager:
         """后台任务完成回调：记日志 + on_task_done（main 接线回灌主对话）。"""
         try:
             if fut.cancelled():
-                task.status = "cancelled"
+                self._set_status(task, "cancelled")
             self._running.discard(task.task_id)
             if task.status == "failed":
                 logger.warning("subagent #%d %s failed: %s",
@@ -278,7 +285,7 @@ class SubAgentManager:
         task = self._tasks.get(task_id)
         if task is None or task.task_id not in self._running:
             return False
-        task.status = "cancelled"
+        self._set_status(task, "cancelled")
         self._running.discard(task_id)
         logger.info("subagent #%d cancelled", task_id)
         return True

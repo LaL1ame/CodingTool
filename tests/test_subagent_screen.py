@@ -55,6 +55,16 @@ def test_format_task_row_running_and_done():
     assert "[Fork]" in done and "完成" in done
 
 
+def test_elapsed_fixed_after_finish():
+    """已完成的耗时固定为 finished_at-created_at，不随查看时刻增长（真机 711.1s 修正）。"""
+    task = _task(1, status="done")
+    task.created_at = 10.0
+    task.finished_at = 13.0
+    row = format_task_row(task, now=1000.0)
+    assert "3.0s" in row
+    assert "993.0s" not in row
+
+
 async def test_list_renders_rows_and_focus():
     tasks = [_task(1), _task(2, role="reviewer")]
     app = Host()

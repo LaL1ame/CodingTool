@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -51,4 +52,13 @@ class SubAgentTask:
     usage: "Usage | None" = None         # 独立 token 用量
     error: str = ""                      # failed 时原因
     created_at: float = 0.0
+    finished_at: float = 0.0             # 终态时间（运行中为 0，F11 耗时展示）
     entries: "tuple[TranscriptEntry, ...]" = ()  # 轨迹快照（F11，完成/失败时写入）
+
+    @property
+    def duration(self) -> float:
+        """任务耗时：终态固定为 finished_at-created_at；运行中持续增长。"""
+        if not self.created_at:
+            return 0.0
+        end = self.finished_at or time.time()
+        return max(0.0, end - self.created_at)

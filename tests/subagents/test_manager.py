@@ -110,6 +110,9 @@ async def test_delegate_defined_foreground(monkeypatch):
     assert t.role == "r"
     # 轨迹快照已保存（F11），前台任务同样可查看
     assert [e.text for e in t.entries] == ["summary"]
+    # 终态记录完成时间，耗时不随查看时刻增长（F11 展示修正）
+    assert t.finished_at > 0
+    assert 0 <= t.finished_at - t.created_at
 
 
 async def test_delegate_unknown_role(monkeypatch):

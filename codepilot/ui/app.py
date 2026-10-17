@@ -197,10 +197,8 @@ class CodePilotApp(App):
         try:
             role = task.role or "fork"
             usage = f" · {task.usage.input_tokens}t" if task.usage else ""
-            elapsed = ""
-            created = getattr(task, "created_at", 0.0) or 0.0
-            if created:
-                elapsed = f" · {max(0.0, time.time() - created):.1f}s"
+            duration = getattr(task, "duration", 0.0) or 0.0
+            elapsed = f" · {duration:.1f}s" if duration else ""
             if task.status == "failed":
                 msg = f"[subagent] #{task.task_id} {role} 失败：{escape(task.error)}"
                 self.query_one("#chat", ChatLog).write(f"\n[bold red]{msg}[/bold red]")
