@@ -96,6 +96,9 @@ class CodePilotApp(App):
         self._chat: ChatManager | None = None
         self._streaming = False
         self._stream_start: float = 0.0
+        # state17: 流式期间完成的后台子任务摘要先入队，空闲时再进 _msgs（防插进
+        # assistant tool_calls 与 tool_result 之间破坏协议序列）。
+        self._pending_subagent: list[str] = []
         # state16 方案A:待结果的工具登记表 id → (name, params);结果到达即写一行入 #chat
         self._tool_rows: dict[str, tuple[str, str]] = {}
         # 会话级累计 token(修正:单轮覆盖的问题)
@@ -173,7 +176,7 @@ class CodePilotApp(App):
     def _on_subagent_done(self, task) -> None:
         """state17: 后台子 Agent 完成回调——写系统行 + 摘要进主对话上下文（F6/D13）。
 
-        不自动触发新一轮：摘要作为一条 user 消息追加，模型下一条消息时可见。
+        不自动触发新一轮；流式中先入队，_process_chat 收尾时再入 _msgs。
         """
         try:
             role = task.role or "fork"
@@ -185,13 +188,29 @@ class CodePilotApp(App):
             else:
                 msg = f"[subagent] #{task.task_id} {role} 完成{usage}"
             self.query_one("#chat", ChatLog).write(f"\n[dim]{msg}[/dim]")
-            if task.status == "done" and task.summary and self._chat is not None:
-                self._chat._msgs.append({
-                    "role": "user",
-                    "content": f"【子任务 #{task.task_id}（{role}）完成】\n{task.summary}",
-                })
+            if task.status == "done" and task.summary:
+                content = f"【子任务 #{task.task_id}（{role}）完成】\n{task.summary}"
+                if self._streaming:
+                    self._pending_subagent.append(content)
+                else:
+                    self._append_subagent_summary(content)
         except Exception as e:
             _log.warning("subagent done 写屏失败: %s", e)
+
+    def _append_subagent_summary(self, content: str) -> None:
+        """把子任务摘要并入主对话上下文；若末条已是 user 则合并，避免连续同角色。"""
+        if self._chat is None:
+            return
+        msgs = self._chat._msgs
+        if msgs and msgs[-1].get("role") == "user":
+            last = msgs[-1]
+            c = last.get("content")
+            if isinstance(c, list):
+                last["content"] = [{"type": "text", "text": content}, *c]
+            else:
+                last["content"] = (c or "") + "\n\n" + content
+        else:
+            msgs.append({"role": "user", "content": content})
 
     def _replay_history(self, log: ChatLog) -> None:
         """state12:恢复会话时,把上一段对话整段画回屏幕,可往上回滚。
@@ -622,6 +641,11 @@ class CodePilotApp(App):
             self._stop_timer()
             inp.disabled = False
             self._streaming = False
+            # state17: 流式期间完成的后台子任务摘要，此刻协议序列已稳定 → 回灌上下文
+            if self._pending_subagent:
+                for content in self._pending_subagent:
+                    self._append_subagent_summary(content)
+                self._pending_subagent.clear()
 
     async def ask_permission(self, tool: str, subject: str) -> HumanChoice:
         from codepilot.ui.screens import PermissionScreen

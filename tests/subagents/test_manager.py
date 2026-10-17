@@ -152,6 +152,15 @@ async def test_failure_isolated(monkeypatch):
     assert t.error == "boom"
 
 
+async def test_foreground_failure_returns_error(monkeypatch):
+    """前台失败 → ToolResult(error)，不得误标 done（回归）。"""
+    _patch_runner(monkeypatch, error=SubAgentError("front boom"))
+    mgr = _mgr()
+    res = await mgr.delegate("defined", "x", role="r")
+    assert res.error == "front boom"
+    assert mgr.tasks()[0].status == "failed"
+
+
 async def test_cancel_background(monkeypatch):
     async def _slow(role, prompt, *, depth, shared):
         await asyncio.sleep(10)

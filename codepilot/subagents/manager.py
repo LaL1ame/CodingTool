@@ -163,7 +163,12 @@ class SubAgentManager:
                 timeout=timeout,
                 return_when=asyncio.FIRST_COMPLETED)
             if sub_task in done:
-                _, usage = sub_task.result()
+                sub_task.result()  # 触发异常传播（_run_one 已捕获，正常不抛）
+                if task.status == "failed":
+                    return ToolResult(call_id="", name="agent",
+                                      error=task.error or "子 Agent 失败")
+                if task.status == "cancelled":
+                    return ToolResult(call_id="", name="agent", error="子 Agent 已取消")
                 task.status = "done"
                 return ToolResult(call_id="", name="agent",
                                   output=task.summary or "(无输出)")
