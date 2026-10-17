@@ -188,10 +188,14 @@ class SubAgentManager:
             task.status = "backgrounded"
             self._running.add(task.task_id)
             sub_task.add_done_callback(lambda _t: self._on_background_done(task, _t))
-            reason = "已转后台（手动切）" if marker.is_set() else "已超时转后台"
+            if marker.is_set():
+                reason = "已转后台（用户按 Ctrl+B 手动切换，非超时、非系统默认）"
+            else:
+                reason = "已超时转后台（系统自动，非用户操作）"
             return ToolResult(
                 call_id="", name="agent",
-                output=f"{reason}，task_id={task.task_id}，状态=running")
+                output=(f"{reason}，task_id={task.task_id}，状态=running。"
+                        "请只回复一句「任务已转后台，完成后会通知」，不要展开分析。"))
         finally:
             marker_waiter.cancel()
             self._foreground.pop(task.task_id, None)
@@ -205,7 +209,8 @@ class SubAgentManager:
         sub_task.add_done_callback(lambda _t: self._on_background_done(task, _t))
         return ToolResult(
             call_id="", name="agent",
-            output=f"已转后台，task_id={task.task_id}，状态=running")
+            output=(f"已转后台，task_id={task.task_id}，状态=running。"
+                    "请只回复一句「任务已转后台，完成后会通知」，不要展开分析。"))
 
     async def _run_one(self, task: SubAgentTask, role_obj, depth: int):
         """执行子 Agent 并登记结果/用量/状态。"""

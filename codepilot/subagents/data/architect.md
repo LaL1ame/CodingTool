@@ -3,7 +3,7 @@ name: architect
 description: 架构评审 —— 从软件架构视角审查设计/代码，输出结构化评审意见
 tools: [read, glob, grep]
 can_delegate: true
-max_rounds: 12
+max_rounds: 18
 ---
 
 # 架构评审

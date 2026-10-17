@@ -136,6 +136,7 @@ async def test_concurrency_limit(monkeypatch):
     r1 = await mgr.delegate("defined", "a", role="r", background=True)
     r2 = await mgr.delegate("defined", "b", role="r", background=True)
     assert "已转后台" in r1.output and "已转后台" in r2.output
+    assert "只回复一句" in r1.output
     r3 = await mgr.delegate("defined", "c", role="r", background=True)
     assert "并发已满" in r3.error
 
@@ -217,6 +218,8 @@ async def test_foreground_manual_background(monkeypatch):
     assert mgr.background_now(tid) is True
     res = await task_fut
     assert "手动切" in res.output
+    assert "非超时" in res.output          # 防模型误判成超时（真机回归）
+    assert "只回复一句" in res.output      # 约束主 Agent 不要长篇展开
     assert mgr.tasks()[0].status == "backgrounded"
     await asyncio.sleep(0.6)
     assert mgr.tasks()[0].status == "done"
