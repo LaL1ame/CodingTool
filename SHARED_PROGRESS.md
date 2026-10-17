@@ -6,7 +6,23 @@
 
 ---
 
-## 最近一次更新：2026-10-14
+## 最近一次更新：2026-10-17
+
+### state16（开发完成 + 真机验收通过）
+**state16：Hook 系统**（`docs/state16-hook-system/`）
+- **状态：四文档获批后开发完成，482 测试绿（原 391 + 91 新增），state16 文件 ruff 全清；真机验收通过。**
+- 目标：在 Agent 生命周期关键节点挂自动化动作（事件+条件+动作三要素），让格式化/拦截/上下文注入从人工变机器。承接 state15/14「动态能力」方向。
+- **架构**：新包 `codepilot/hooks/`（model/loader/engine/actions/injector）。8 事件（session_start/end、round_start、user_message、tool_pre/tool_post、compact、stop）；条件复用权限匹配器（**共享 match_text 升级四语法**：精确/`!`反向/`/regex/`正则/glob，权限规则与 Hook 条件共用）；四动作（command/http/prompt/subagent占位）；执行控制（once 会话内/async 后台/timeout，拦截事件禁 async）；两级 `.hooks.yaml`（项目>用户）叠加；F10 集中校验 fail-fast；Hook 失败只记日志不中断主流程。
+- **关键裁决**：
+  1. 拦截 = tool_pre 上 command 退出码非 0，stderr 作拒绝原因回灌模型（不引第五种动作）；异常/超时 fail-open。
+  2. 提示词注入走 volatile 尾块（复用 memory/skill 注入缝，去重钉住，`/clear` 复位）。
+  3. 条件四语法升级共享 `permissions/rules.match_text`——**顺带修 `parse_rule` 冒号定界 bug**（pattern 内含冒号如正则 `/^C:/` 会被 partition 截断，验收场景6暴露）。
+  4. 工具调用渲染方案 A：每工具一行（结果内嵌 ✅/✕）直接写进可滚动 `#chat`，移除 `#tools` 瞬时面板/ToolRow。
+  5. **滚动健康修复（ChatLog）**：Textual 8.2.8 RichLog 的 `scroll_end(immediate=False)` 延迟落地会在流式写入时把用户上滚位置拽回底部——自实现「仅位于底部才跟随」（write 前判断，immediate=True 同步跟随）。
+- **真机验收**：场景2 拦截✓（模型读配置改用 write 绕开）、场景3 注入+/clear✓（headless 铁证复位）、场景4 异步超时✓（日志自证不阻塞）、场景5 fail-fast✓（启动即报错）、场景6 权限新语法✓（含 parse_rule 修复）。场景1 自动格式化**降级为设计讨论 ADR-003**（「每次 edit 后自动格式化」是 AI 助手语境反模式：模型无反馈通道/对抗有意写入/异步竞态/风格噪音）。
+- 文件：`codepilot/hooks/*`、`permissions/rules.py`（匹配器+parse_rule）、`prompt/builder.py`、`agent.py`、`chat.py`、`context/manager.py`、`ui/app.py`、`ui/widgets/chat_log.py`、`main.py`、6 个测试文件（tests/hooks/* + test_streaming_scroll.py）。
+- 遗留：`[hook] failed` TUI 系统行可见性弱（可选 UX 优化）；`.hooks.yaml` 已 gitignore（运行时配置）；ADR-003 记录反模式。
+- 新上手：读本文 + `docs/state16-hook-system/{spec,plan,task,checklist}.md` 即可恢复。下一步 state17 范围待定。
 
 ### state15（开发完成 + 真机验收通过）
 **state15：Skill 系统**（`docs/state15-skill-system/`）
