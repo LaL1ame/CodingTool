@@ -21,15 +21,16 @@
 - [x] 命令接线：`/agents` 列出任务、`/bg <id>` 切后台，manager 未启用时安全降级（验证：`tests/test_commands_builtins.py`）。
 - [x] UI 回灌接线：后台完成写系统行 + 摘要追加主对话 `_msgs`（不触发新一轮）；流式中先入队、收尾回灌（验证：`tests/test_subagent_repl.py`）。
 - [x] main 装配：load_all(check_tools) + 注册 AgentTool + app 传 subagent_manager（验证：`python -c "import codepilot.main"`）。
-- [ ] 轨迹扁平化（F11 增量）：Anthropic 块 / OpenAI tool_calls / role=tool 均转 `TranscriptEntry`，工具名映射、截断、start 切片、不改入参（验证：`tests/subagents/test_transcript.py`）。
-- [ ] 轨迹存储：成功/失败/达上限均写入 `task.entries`；Fork 只存自有部分（验证：`test_runner.py` / `test_manager.py`）。
-- [ ] F3 任务面板：列表 ↑↓ 选择、Enter 打开轨迹、Esc 返回且索引保持；0.5s 刷新不打断选中（验证：`tests/test_subagent_screen.py`）。
-- [ ] 后台完成摘要直显：聊天区出现「子任务 #N 结论」+ 摘要，同时仍进入 `_msgs`；markup 字符原样显示（验证：`tests/test_subagent_repl.py`）。
+- [x] 轨迹扁平化（F11 增量）：Anthropic 块 / OpenAI tool_calls / role=tool 均转 `TranscriptEntry`，工具名映射、截断、start 切片、不改入参（验证：`tests/subagents/test_transcript.py`，7 用例）。
+- [x] 轨迹存储：成功/失败/达上限均写入 `task.entries`；Fork 只存自有部分（验证：`test_runner.py` / `test_manager.py`）。
+- [x] F3 任务面板：列表 ↑↓ 选择、Enter 打开轨迹、Esc 返回且索引保持；0.5s 刷新不打断选中；新任务追加不扰动选中（验证：`tests/test_subagent_screen.py`，10 用例）。
+- [x] 后台完成摘要直显：聊天区出现「子任务 #N 结论」+ 摘要，同时仍进入 `_msgs`；markup 字符原样显示（验证：`tests/test_subagent_repl.py`）。
+- [x] 提示行与焦点：F3 打开面板、Esc 关闭后输入框焦点恢复；流式中开面板、结束后仍可输入（验证：`tests/test_subagent_app.py`）。
 
 ## 验证与测试
 
 - [x] 项目无语法错误、模块可导入（验证：`python -c "import codepilot.subagents, codepilot.ui.app, codepilot.main"`）。
-- [x] 全量单测通过（验证：`python -m pytest -q` —— **548 passed**，既有 482 + state17 新增 66）。
+- [x] 全量单测通过（验证：`python -m pytest -q` —— **581 passed**，state17 主体 548 + 观察视图增量 33）。
 - [x] lint 无回归（验证：`ruff check codepilot/subagents tests/subagents` 零告警；`ruff check .` 27 处既有基线未新增）。
 
 ## 端到端场景（阶段六真机 / TUI）

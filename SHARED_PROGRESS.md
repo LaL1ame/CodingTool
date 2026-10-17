@@ -8,9 +8,9 @@
 
 ## 最近一次更新：2026-10-17
 
-### state17（开发完成，待真机验收）
+### state17（开发完成 + 观察视图增量，待真机验收）
 **state17：SubAgent 系统**（`docs/state17-subagent/`）
-- **状态：四文档获批后开发完成，548 测试绿（原 482 + 66 新增），state17 文件 ruff 全清；待阶段六真机验收。**
+- **状态：四文档获批后开发完成；F11 观察视图增量已完成，581 测试绿，state17 文件 ruff 全清；待真机验收（场景 1–6）。**
 - 目标：主 Agent 用统一 `agent` 工具把子任务委派给独立子 Agent（干净上下文/受限工具/独立权限），定义式按角色、Fork 式继承历史，结果回灌主对话，解决上下文污染。承接 state16 `subagent` Hook 动作占位。
 - **架构**：新包 `codepilot/subagents/`（model/loader/runner/manager/tool + data 内置样板）。子 Agent **复用现有 Agent 类**（N6）：共享 provider/registry/hooks/fs，独立 permission/context_manager/msgs。角色 = Markdown+YAML frontmatter，四级 `[插件<内置<用户<项目]` 同名覆盖。多层防线落在 `Agent._build_tools` 新增 `tool_filter` 注入点：白名单∪系统 → 黑名单 → agent 禁（can_delegate∧depth<max_depth）→ 后台/plan 只读。深度用 contextvar；后台并发上限 4。
 - **关键裁决**：独立体系 Skill 不动；结果回灌模型+系统行；执行中仅状态行+完成摘要；前台超时转后台；`/bg` 手动切；后台完成摘要流式中先入队、收尾回灌（防插进 tool_call/tool_result 破坏协议）；Fork 强制后台+继承父工具集快照。
@@ -19,7 +19,9 @@
 - **真机验收修正（场景1）**：模型不知道有哪些角色 → 不调 agent 工具而自己用 read/glob 干活。补「角色名册」注入（system prompt volatile 块 + agent 工具 description + role enum 动态生成）。
 - **真机验收修正（场景2）**：Fork 子 Agent HTTP 400（`status=failed chars=0`）——fork 发起时父 `_msgs` 末尾是 `assistant(tool_use=agent)` 且结果未回灌，直接继承会缺 `tool_result`。修复：`_fork_messages` 裁掉尾部 dangling tool_calls + trigger 并入末条 user；失败任务现在日志记 `task.error`。
 - **真机验收修正（场景4/Ctrl+B）**：手动切后台功能可用，但占位工具结果让模型误判成「超时」并长篇解释。修复：占位结果明确「用户按 Ctrl+B 手动切换，非超时」+ 要求「只回复一句」；architect 示例 max_rounds 12→18（全仓审查不够）。
-- 遗留 / 待确认：真机验收（5 场景）；`can_delegate` 默认 max_depth=1 下不生效，需配 2 才启用多级委派；插件层仅预留接口。
+- **F11 观察视图增量（方案 B）**：`runner` 返回 `RunResult(summary, usage, entries)`，结束时把协议原生 msgs 扁平化为 `TranscriptEntry` 快照（Fork 只存自有部分，不持有父历史深拷贝）；`SubAgentTask.entries` 统一承载成功/失败轨迹。TUI：输入框上方提示行 + **F3** 任务列表（ListView 原生 ↑↓、Enter 打开轨迹、Esc 返回/关闭，0.5s 原地刷新保选中）；轨迹屏用 RichLog + Text 对象（markup 不注入）。后台完成摘要**直接写聊天区**（escaped），同时照旧排队进 `_msgs`。顺带修复流式结束输入框焦点丢失（Textual disabled→blur 不自动恢复）。
+- 文件增量：`subagents/transcript.py`、`ui/screens/subagent_screen.py`、`tests/subagents/test_transcript.py`、`tests/test_subagent_screen.py`、`tests/test_subagent_app.py`。
+- 遗留 / 待确认：真机验收（场景 1–6）；`can_delegate` 默认 max_depth=1 下不生效，需配 2 才启用多级委派；插件层仅预留接口；`manager.cancel` 只改状态不真正取消 asyncio task（既有缺陷，本次未暴露取消入口）。
 - 新上手：读本文 + `docs/state17-subagent/{spec,plan,task,checklist}.md` 即可恢复。
 
 ### state16（开发完成 + 真机验收通过）
