@@ -10,9 +10,10 @@ from codepilot.subagents.manager import SubAgentManager
 from codepilot.subagents.model import AgentRole, RoleError, SubAgentTask
 from codepilot.subagents.runner import SubAgentError
 from codepilot.subagents.tool import AgentTool
+from codepilot.subagents.transcript import TranscriptEntry
 
 __all__ = [
-    "AgentRole", "RoleError", "SubAgentTask",
+    "AgentRole", "RoleError", "SubAgentTask", "TranscriptEntry",
     "parse_role_file", "load_all", "BUILTIN_DIR",
     "SubAgentManager", "SubAgentError", "AgentTool",
 ]

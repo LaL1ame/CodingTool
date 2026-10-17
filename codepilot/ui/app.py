@@ -14,7 +14,9 @@ import os
 import time
 from collections.abc import Callable
 
+from rich.markup import escape
 from textual.app import App, ComposeResult
+from textual.css.query import NoMatches
 from textual.widgets import Footer, Header, Static, TextArea
 
 from codepilot.agent import Agent
@@ -52,7 +54,9 @@ class CodePilotApp(App):
     BINDINGS = [("ctrl+c", "quit", "退出"), ("escape", "cancel_loop", "取消"),
                 ("f2", "cycle_release", "切换模式"),
                 # state17: 前台子 Agent 运行时输入框禁用，Ctrl+B 直达「切后台」。
-                ("ctrl+b", "background_subagent", "子任务切后台")]  # state11:Enter/Ctrl+Enter 由 PromptInput 内部接管
+                ("ctrl+b", "background_subagent", "子任务切后台"),
+                # F11: 子任务面板（列表 ↑↓/Enter 查看轨迹）。
+                ("f3", "show_subagents", "子任务")]  # state11:Enter/Ctrl+Enter 由 PromptInput 内部接管
 
     CSS_PATH = "theme.tcss"
 
@@ -107,6 +111,8 @@ class CodePilotApp(App):
         self._tokens_in: int = 0
         self._tokens_out: int = 0
         self._status_round: str = ""
+        # F11: 子任务提示行刷新定时器
+        self._subagent_hint_timer = None
 
     def on_mount(self) -> None:
         self._chat = ChatManager(self._agent, history=self._history,
@@ -140,6 +146,8 @@ class CodePilotApp(App):
         self.query_one("#prompt", TextArea).focus()  # 启动即把输入焦点交给 prompt(否则落在 ChatLog)
         self._refresh_status()
 
+        # F11: 常驻提示行（未启用 SubAgent 时隐藏）
+        self._refresh_subagent_hint()
         # state17: 子 Agent 接线——完成回灌主对话 + 父上下文/工具集取数（fork 继承）
         if self._subagent_manager is not None:
             self._subagent_manager.set_on_task_done(self._on_subagent_done)
@@ -147,6 +155,8 @@ class CodePilotApp(App):
                 lambda: self._chat._msgs if self._chat is not None else [])
             self._subagent_manager.set_parent_visible(
                 lambda: self._agent.visible_tool_names())
+            self._subagent_hint_timer = self.set_interval(
+                0.5, self._refresh_subagent_hint)
 
         # state16: session_start 发射 + notify 接线（app 就绪后才可写 ChatLog）
         if self._hook_engine is not None:
@@ -156,6 +166,8 @@ class CodePilotApp(App):
 
     def on_unmount(self) -> None:
         """退出时把最终模式快照写入会话文件,供下次 resume。"""
+        if self._subagent_hint_timer is not None:
+            self._subagent_hint_timer.stop()
         if self._session_file:
             from codepilot.session import store
             store.append_mode(self._session_file, self._mode_state.snapshot())
@@ -178,24 +190,40 @@ class CodePilotApp(App):
     def _on_subagent_done(self, task) -> None:
         """state17: 后台子 Agent 完成回调——写系统行 + 摘要进主对话上下文（F6/D13）。
 
-        不自动触发新一轮；流式中先入队，_process_chat 收尾时再入 _msgs。
+        F11: 摘要同时**直接写进聊天区**，用户无需再发一轮让模型转述。
+        进 `_msgs` 仍走原排队逻辑（流式中先入队，收尾时再写，防破坏协议序列）。
+        不自动触发新一轮。
         """
         try:
             role = task.role or "fork"
             usage = f" · {task.usage.input_tokens}t" if task.usage else ""
+            elapsed = ""
+            created = getattr(task, "created_at", 0.0) or 0.0
+            if created:
+                elapsed = f" · {max(0.0, time.time() - created):.1f}s"
             if task.status == "failed":
-                msg = f"[subagent] #{task.task_id} {role} 失败：{task.error}"
+                msg = f"[subagent] #{task.task_id} {role} 失败：{escape(task.error)}"
+                self.query_one("#chat", ChatLog).write(f"\n[bold red]{msg}[/bold red]")
             elif task.status == "cancelled":
                 msg = f"[subagent] #{task.task_id} {role} 已取消"
+                self.query_one("#chat", ChatLog).write(f"\n[dim]{msg}[/dim]")
             else:
-                msg = f"[subagent] #{task.task_id} {role} 完成{usage}"
-            self.query_one("#chat", ChatLog).write(f"\n[dim]{msg}[/dim]")
+                msg = (f"[subagent] #{task.task_id} {role} 完成"
+                       f"{elapsed}{usage}")
+                self.query_one("#chat", ChatLog).write(f"\n[dim]{msg}[/dim]")
+                if task.summary:
+                    # 摘要直显（escaped：避免模型输出中的 [...] 被当作 Rich 标记）
+                    self.query_one("#chat", ChatLog).write(
+                        f"\n[bold cyan]── 子任务 #{task.task_id}"
+                        f"（{escape(role)}）结论 ──[/bold cyan]")
+                    self.query_one("#chat", ChatLog).write(escape(task.summary))
             if task.status == "done" and task.summary:
                 content = f"【子任务 #{task.task_id}（{role}）完成】\n{task.summary}"
                 if self._streaming:
                     self._pending_subagent.append(content)
                 else:
                     self._append_subagent_summary(content)
+            self._refresh_subagent_hint()
         except Exception as e:
             _log.warning("subagent done 写屏失败: %s", e)
 
@@ -236,6 +264,7 @@ class CodePilotApp(App):
         yield Header(show_clock=True)
         yield ChatLog(id="chat", highlight=True, markup=True, wrap=True)
         yield Static("", id="stream")
+        yield Static("", id="subagent-task-hint")   # F11: 子任务运行/完成提示
         yield Static("Enter 发送 · Ctrl+J 换行 · 支持多行(可粘贴)  (/exit /plan /do)", id="prompt-hint")
         yield PromptInput(id="prompt", soft_wrap=True, completer=self.completer)  # soft_wrap:长行折行自适应;completer:Tab补全(state14)
         yield Footer()
@@ -260,6 +289,57 @@ class CodePilotApp(App):
         if mgr.background_now(ids[0]):
             self._chat_log().write(
                 f"\n[dim]── 子任务 #{ids[0]} 已切到后台继续运行[/dim]")
+
+    def action_show_subagents(self) -> None:
+        """F11：打开子 Agent 任务列表（F3）。
+
+        无任务时只在聊天区提示，不弹空屏。
+        """
+        mgr = self._subagent_manager
+        if mgr is None:
+            self._chat_log().write("\n[dim]SubAgent 系统未启用[/dim]")
+            return
+        if not mgr.tasks():
+            self._chat_log().write("\n[dim]当前没有子 Agent 任务[/dim]")
+            return
+        from codepilot.ui.screens import SubAgentListScreen
+        self.push_screen(SubAgentListScreen(mgr.tasks))
+
+    def _refresh_subagent_hint(self) -> None:
+        """F11：输入框上方的子任务提示行（运行中/已完成数量）。"""
+        try:
+            hint = self.query_one("#subagent-task-hint", Static)
+            mgr = self._subagent_manager
+            if mgr is None:
+                hint.update("")
+                hint.display = False
+                return
+            running, done = mgr.counts()
+            if running:
+                text = f"⇣ 子任务 {running} 运行中"
+                if done:
+                    text += f" · {done} 已完成"
+            elif done:
+                text = f"⇣ 子任务 {done} 已完成"
+            else:
+                text = ""
+            hint.update(f"{text}  (F3 查看)" if text else "")
+            hint.display = bool(text)
+        except (NoMatches, AttributeError):
+            return
+
+    def _focus_prompt(self) -> None:
+        """把焦点还给输入框。
+
+        模态屏打开时也可以安全调用：Textual 的焦点按屏幕隔离，这里设置的是
+        底层屏幕的焦点，不会抢走模态屏的焦点；模态关闭后输入框即可用。
+        """
+        try:
+            inp = self.query_one("#prompt", TextArea)
+        except NoMatches:
+            return
+        if not inp.disabled:
+            inp.focus()
 
     def action_cycle_release(self) -> None:
         """F2:Claude Code 式放行模式循环(MANUAL→AUTO→STRICT,同步 AE)。"""
@@ -659,6 +739,9 @@ class CodePilotApp(App):
             self._stop_timer()
             inp.disabled = False
             self._streaming = False
+            # Textual 在 TextArea disabled 时会 blur，重新 enable 不会自动恢复
+            # （既有缺陷）：每轮结束把焦点还给输入框，模态屏打开时不抢。
+            self._focus_prompt()
             # state17: 流式期间完成的后台子任务摘要，此刻协议序列已稳定 → 回灌上下文
             if self._pending_subagent:
                 for content in self._pending_subagent:

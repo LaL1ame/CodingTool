@@ -100,3 +100,69 @@ CompletionScreen #completion-box {
     border: round $accent;
     background: #26262e;
 }
+
+/* —— 子 Agent 提示行（F11） —— */
+#subagent-task-hint {
+    height: 1;
+    color: #ffd479;
+    padding: 0 2;
+}
+
+/* —— 子 Agent 任务列表屏（F11） —— */
+SubAgentListScreen #subagent-box {
+    width: 90%;
+    max-width: 120;
+    height: 80%;
+    border: round $accent;
+    padding: 1 2;
+    background: #1e1e26;
+    color: #d0d0d8;
+}
+SubAgentListScreen #subagent-title {
+    color: #ffd479;
+    text-style: bold;
+    height: 1;
+}
+SubAgentListScreen #subagent-list {
+    height: 1fr;
+    border: round $accent;
+    background: #26262e;
+    padding: 0 1;
+}
+SubAgentListScreen ListItem {
+    height: 1;
+}
+SubAgentListScreen ListItem > Label {
+    width: 100%;
+    text-overflow: ellipsis;
+}
+SubAgentListScreen #subagent-list-hint {
+    height: 1;
+    color: #8888a0;
+}
+
+/* —— 子 Agent 轨迹屏（F11） —— */
+SubAgentTranscriptScreen #transcript-box {
+    width: 95%;
+    height: 90%;
+    border: round $accent;
+    padding: 1 2;
+    background: #1e1e26;
+    color: #d0d0d8;
+}
+SubAgentTranscriptScreen #transcript-title {
+    height: 1;
+    color: #ffd479;
+    text-style: bold;
+}
+SubAgentTranscriptScreen #transcript-log {
+    height: 1fr;
+    border: round $accent;
+    background: #14141a;
+    color: #d0d0d8;
+    padding: 0 1;
+}
+SubAgentTranscriptScreen #transcript-hint {
+    height: 1;
+    color: #8888a0;
+}

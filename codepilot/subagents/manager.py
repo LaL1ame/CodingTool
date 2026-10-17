@@ -91,6 +91,14 @@ class SubAgentManager:
     def tasks(self) -> list[SubAgentTask]:
         return list(self._tasks.values())
 
+    def counts(self) -> tuple[int, int]:
+        """(运行中数量, 已完成数量) —— TUI 提示行用；只读快照，不引 UI。"""
+        tasks = self._tasks.values()
+        running = sum(
+            1 for t in tasks if t.status in ("running", "backgrounded"))
+        done = sum(1 for t in tasks if t.status == "done")
+        return running, done
+
     def role_list_block(self) -> str:
         """可委派角色名册（state17 修正：注入 system prompt，让模型知道有哪些角色）。
 
@@ -217,19 +225,22 @@ class SubAgentManager:
         token = _depth_ctx.set(depth + 1)
         try:
             if task.kind == "defined":
-                summary, usage = await run_role_agent(
+                result = await run_role_agent(
                     role_obj, task.prompt, depth=depth + 1, shared=self._shared)
             else:
                 parent_names = frozenset(self._parent_visible())
                 parent_msgs = self._parent_msgs()
-                summary, usage = await run_fork_agent(
+                result = await run_fork_agent(
                     task.prompt, parent_msgs=parent_msgs,
                     parent_names=parent_names, depth=depth + 1, shared=self._shared)
-            task.summary = summary
-            task.usage = usage
+            task.summary = result.summary
+            task.usage = result.usage
+            task.entries = tuple(result.entries)
             task.status = "done"
         except SubAgentError as e:
             task.error = str(e)
+            # 失败也保留已产生的部分轨迹（F11）
+            task.entries = tuple(getattr(e, "entries", None) or ())
             task.status = "failed"
         except asyncio.CancelledError:
             task.status = "cancelled"

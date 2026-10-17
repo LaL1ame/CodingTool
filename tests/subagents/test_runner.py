@@ -76,9 +76,13 @@ def _shared(**kw) -> SharedContext:
 async def test_run_role_agent_collects_summary():
     shared = _shared()
     role = AgentRole(name="reviewer", description="d", body="你是审查员，输出结论。")
-    summary, usage = await run_role_agent(role, "审查 X", depth=1, shared=shared)
-    assert summary == "final answer"
-    assert usage is None
+    res = await run_role_agent(role, "审查 X", depth=1, shared=shared)
+    assert res.summary == "final answer"
+    assert res.usage is None
+    # 轨迹快照：触发消息 + 最终回答（F11）
+    assert res.entries[0].kind == "user"
+    assert any(e.kind == "assistant" and e.text == "final answer"
+               for e in res.entries)
 
 
 async def test_run_role_agent_respects_max_rounds():
@@ -91,18 +95,38 @@ async def test_run_role_agent_respects_max_rounds():
         Delta(text="partial"),
         Delta(tool_calls=[ToolCall(id="c1", name="read", arguments={})]),
     ]]
-    summary, _ = await run_role_agent(role, "do", depth=1, shared=shared)
-    assert "partial" in summary
-    assert "达轮次上限" in summary
+    res = await run_role_agent(role, "do", depth=1, shared=shared)
+    assert "partial" in res.summary
+    assert "达轮次上限" in res.summary
+    assert any(e.kind == "tool_use" and e.name == "read" for e in res.entries)
+    assert any(e.kind == "tool_result" for e in res.entries)
 
 
-async def test_run_role_agent_error_raises():
+async def test_run_role_agent_error_raises_with_partial_entries():
     from codepilot.protocols import Delta
     shared = _shared()
     shared.provider._rounds = [[Delta(error="模型 500")]]
     role = AgentRole(name="r", description="d", body="b")
-    with pytest.raises(SubAgentError):
+    with pytest.raises(SubAgentError) as ei:
         await run_role_agent(role, "x", depth=1, shared=shared)
+    # 失败也保留已产生的部分轨迹（F11）
+    assert [e.kind for e in ei.value.entries] == ["user"]
+
+
+async def test_error_captures_partial_tool_trace():
+    """工具调用后下一轮报错：部分轨迹仍可查看。"""
+    from codepilot.protocols import Delta, ToolCall
+    shared = _shared()
+    shared.provider._rounds = [
+        [Delta(text="partial"),
+         Delta(tool_calls=[ToolCall(id="c1", name="read", arguments={})])],
+        [Delta(error="模型 500")],
+    ]
+    role = AgentRole(name="r", description="d", body="b")
+    with pytest.raises(SubAgentError) as ei:
+        await run_role_agent(role, "x", depth=1, shared=shared)
+    kinds = [e.kind for e in ei.value.entries]
+    assert "assistant" in kinds and "tool_use" in kinds and "tool_result" in kinds
 
 
 class _RecordingProvider(_MockProvider):
@@ -163,18 +187,22 @@ async def test_fork_inherits_parent_msgs_deepcopy():
     shared = _shared()
     parent = [{"role": "user", "content": "原始"}, {"role": "assistant", "content": "背景"}]
     shared.provider._rounds = [[Delta(text="fork 输出")]]
-    summary, _ = await run_fork_agent("继续", parent_msgs=parent,
-                                parent_names=frozenset({"read"}), depth=1, shared=shared)
-    assert summary == "fork 输出"
+    res = await run_fork_agent("继续", parent_msgs=parent,
+                               parent_names=frozenset({"read"}), depth=1, shared=shared)
+    assert res.summary == "fork 输出"
     # 深拷贝：不改父列表
     assert len(parent) == 2
     assert parent[0]["content"] == "原始"
+    # 轨迹只存自有部分：不重复父历史（F11）
+    joined = "\n".join(e.text for e in res.entries)
+    assert "原始" not in joined and "背景" not in joined
+    assert "请基于当前上下文执行" in joined
 
 
 async def test_runner_constructs_independent_context_manager():
     """子 Agent 有独立 ContextManager（不 attach_chat，隔离计数）。"""
     shared = _shared()
     role = AgentRole(name="r", description="d", body="b")
-    summary, _ = await run_role_agent(role, "x", depth=1, shared=shared)
-    assert summary == "final answer"
+    res = await run_role_agent(role, "x", depth=1, shared=shared)
+    assert res.summary == "final answer"
     # 子 Agent 使用的 ContextManager 与共享实例无关（共享实例此时不存在）

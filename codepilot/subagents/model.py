@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from codepilot.protocols import Usage
+    from codepilot.subagents.transcript import TranscriptEntry
 
 
 class RoleError(Exception):
@@ -50,3 +51,4 @@ class SubAgentTask:
     usage: "Usage | None" = None         # 独立 token 用量
     error: str = ""                      # failed 时原因
     created_at: float = 0.0
+    entries: "tuple[TranscriptEntry, ...]" = ()  # 轨迹快照（F11，完成/失败时写入）

@@ -13,7 +13,8 @@ from codepilot.prompt import EnvContext
 from codepilot.subagents import manager as manager_mod
 from codepilot.subagents.manager import SubAgentManager
 from codepilot.subagents.model import AgentRole
-from codepilot.subagents.runner import SubAgentError
+from codepilot.subagents.runner import RunResult, SubAgentError
+from codepilot.subagents.transcript import TranscriptEntry
 from codepilot.tools.base import Tool
 from codepilot.tools.registry import ToolRegistry
 
@@ -62,16 +63,26 @@ def _mgr(**kw) -> SubAgentManager:
     return SubAgentManager(**base)
 
 
-def _patch_runner(monkeypatch, result=("summary", None), error=None):
+def _result(summary="summary", entries=None):
+    return RunResult(
+        summary, None,
+        [TranscriptEntry("assistant", summary)] if entries is None else entries)
+
+
+def _patch_runner(monkeypatch, result=None, error=None):
     """桩掉 runner 两个入口，让 manager 聚焦调度逻辑。"""
+    result = _result() if result is None else result
+
     async def _role(role, prompt, *, depth, shared):
         if error:
             raise error
         return result
+
     async def _fork(prompt, *, parent_msgs, parent_names, depth, shared):
         if error:
             raise error
         return result
+
     monkeypatch.setattr(manager_mod, "run_role_agent", _role)
     monkeypatch.setattr(manager_mod, "run_fork_agent", _fork)
 
@@ -97,6 +108,8 @@ async def test_delegate_defined_foreground(monkeypatch):
     assert t.status == "done"
     assert t.kind == "defined"
     assert t.role == "r"
+    # 轨迹快照已保存（F11），前台任务同样可查看
+    assert [e.text for e in t.entries] == ["summary"]
 
 
 async def test_delegate_unknown_role(monkeypatch):
@@ -130,7 +143,7 @@ async def test_concurrency_limit(monkeypatch):
     """后台并发上限：达到后新委派被拒（F10）。"""
     async def _slow(role, prompt, *, depth, shared):
         await asyncio.sleep(0.5)
-        return ("s", None)
+        return _result("s")
     monkeypatch.setattr(manager_mod, "run_role_agent", _slow)
     mgr = _mgr(max_concurrent=2)
     r1 = await mgr.delegate("defined", "a", role="r", background=True)
@@ -176,7 +189,7 @@ async def test_foreground_failure_returns_error(monkeypatch):
 async def test_cancel_background(monkeypatch):
     async def _slow(role, prompt, *, depth, shared):
         await asyncio.sleep(10)
-        return ("s", None)
+        return _result("s")
     monkeypatch.setattr(manager_mod, "run_role_agent", _slow)
     mgr = _mgr()
     await mgr.delegate("defined", "x", role="r", background=True)
@@ -190,7 +203,7 @@ async def test_foreground_timeout_to_background(monkeypatch):
     """前台超时 → 转后台并返回占位（D11）。"""
     async def _slow(role, prompt, *, depth, shared):
         await asyncio.sleep(1)
-        return ("slow result", None)
+        return _result("slow result")
     monkeypatch.setattr(manager_mod, "run_role_agent", _slow)
     mgr = _mgr()
     res = await mgr.delegate("defined", "x", role="r", timeout=0.05)
@@ -204,11 +217,36 @@ async def test_foreground_timeout_to_background(monkeypatch):
     assert t.summary == "slow result"
 
 
+async def test_failure_stores_partial_entries(monkeypatch):
+    """失败任务保留已产生的部分轨迹（F11）。"""
+    partial = [TranscriptEntry("assistant", "做到一半")]
+    _patch_runner(monkeypatch, error=SubAgentError("boom", entries=partial))
+    mgr = _mgr()
+    res = await mgr.delegate("defined", "x", role="r")
+    assert res.error == "boom"
+    assert mgr.tasks()[0].entries == tuple(partial)
+
+
+async def test_counts_running_and_done(monkeypatch):
+    """提示行概要：(运行中, 已完成)（F11）。"""
+    async def _slow(role, prompt, *, depth, shared):
+        await asyncio.sleep(0.2)
+        return _result("s")
+
+    monkeypatch.setattr(manager_mod, "run_role_agent", _slow)
+    mgr = _mgr()
+    assert mgr.counts() == (0, 0)
+    await mgr.delegate("defined", "x", role="r", background=True)
+    assert mgr.counts() == (1, 0)
+    await asyncio.sleep(0.3)
+    assert mgr.counts() == (0, 1)
+
+
 async def test_foreground_manual_background(monkeypatch):
     """/bg / Ctrl+B 手动切：前台等待中任务转后台继续跑（D12）。"""
     async def _slow(role, prompt, *, depth, shared):
         await asyncio.sleep(0.5)
-        return ("manual bg result", None)
+        return _result("manual bg result")
     monkeypatch.setattr(manager_mod, "run_role_agent", _slow)
     mgr = _mgr()
     task_fut = asyncio.ensure_future(mgr.delegate("defined", "x", role="r"))

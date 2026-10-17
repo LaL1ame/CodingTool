@@ -19,6 +19,7 @@ from codepilot.context.manager import ContextManager
 from codepilot.permissions import PermissionManager
 from codepilot.permissions.mode import PermissionMode
 from codepilot.providers import BaseProvider
+from codepilot.subagents.transcript import TranscriptEntry, flatten
 
 if TYPE_CHECKING:
     from codepilot.hooks.engine import HookEngine
@@ -39,9 +40,25 @@ _ROLE_PERMISSION_MODE = {
 
 
 class SubAgentError(Exception):
-    """子 Agent 执行失败（模型错误/内部异常）。达轮次上限不属此类（D14）。"""
+    """子 Agent 执行失败（模型错误/内部异常）。达轮次上限不属此类（D14）。
 
-    pass
+    `entries`：失败前已产生的部分轨迹（F11），供任务面板查看。
+    """
+
+    def __init__(
+        self, message: str, entries: list[TranscriptEntry] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.entries = entries
+
+
+@dataclass
+class RunResult:
+    """一次子 Agent 执行的产出：摘要 + 用量 + 轨迹快照（F11）。"""
+
+    summary: str
+    usage: "Usage | None"
+    entries: list[TranscriptEntry]
 
 
 @dataclass
@@ -143,35 +160,43 @@ def _fork_permission(shared: SharedContext) -> PermissionManager | None:
     return pm
 
 
-async def _collect(sub: Agent, msgs: list[dict]) -> "tuple[str, Usage | None]":
-    """消费子 Agent 循环到结束，收集摘要与末次 usage。
+async def _collect(sub: Agent, msgs: list[dict], *, start: int = 0) -> RunResult:
+    """消费子 Agent 循环到结束，收集摘要、末次 usage 与轨迹快照。
 
-    达轮次上限（paused=limit）视为尽力完成（D14），摘要注明；error/cancelled 抛异常。
+    达轮次上限（paused=limit）视为尽力完成（D14），摘要注明；error/cancelled
+    抛 `SubAgentError`，并把已产生的部分轨迹挂到异常上（F11）。
     """
     chunks: list[str] = []
     last_usage = None
     limit_reached = False
+    error: SubAgentError | None = None
     async for d in sub.run(msgs):
         if d.error:
-            raise SubAgentError(f"子 Agent 模型错误: {d.error}")
+            error = SubAgentError(f"子 Agent 模型错误: {d.error}")
+            break
         if d.cancelled:
-            raise SubAgentError("子 Agent 已取消")
+            error = SubAgentError("子 Agent 已取消")
+            break
         if d.usage is not None:
             last_usage = d.usage
         if d.text:
             chunks.append(d.text)
         if d.paused and d.pause_reason == "limit":
             limit_reached = True
+    if error is not None:
+        error.entries = flatten(msgs, start=start)
+        raise error
     summary = "".join(chunks).strip() or "(无输出)"
     if limit_reached:
         summary += "\n\n[子 Agent 达轮次上限，结论可能不完整]"
-    return summary, last_usage
+    return RunResult(summary=summary, usage=last_usage,
+                     entries=flatten(msgs, start=start))
 
 
 async def run_role_agent(
     role: "AgentRole", prompt: str, *, depth: int, shared: SharedContext,
-) -> "tuple[str, Usage | None]":
-    """定义式（F3）：空白对话 + 固定角色启动，跑到底返回 (摘要, 用量)。"""
+) -> RunResult:
+    """定义式（F3）：空白对话 + 固定角色启动，跑到底返回 RunResult。"""
     trigger = f"请以角色「{role.name}」执行：{prompt}"
     msgs = [{"role": "user", "content": trigger}]
     provider = _role_provider(shared, role.model)
@@ -198,13 +223,14 @@ async def run_role_agent(
 async def run_fork_agent(
     prompt: str, *, parent_msgs: list[dict], parent_names: frozenset[str],
     depth: int, shared: SharedContext,
-) -> "tuple[str, Usage | None]":
+) -> RunResult:
     """Fork 式（F4）：继承父历史与工具集，强制后台只读，首次请求命中 cache。
 
     parent_msgs 深拷贝后**裁剪为协议合法前缀**（见 _fork_messages），system 标准构建（D6）。
+    轨迹只保留自有部分（触发消息及其后），不再持有继承的父历史（F11）。
     """
     trigger = f"请基于当前上下文执行：{prompt}"
-    msgs = _fork_messages(parent_msgs, trigger)
+    msgs, own_start = _fork_messages(parent_msgs, trigger)
     provider = shared.provider
     ctx_mgr = ContextManager(provider=provider, config=shared.ctx_config)
     sub = Agent(
@@ -219,7 +245,7 @@ async def run_fork_agent(
         hooks=shared.shared_hooks,
         stall_enabled=shared.stall_enabled,
     )
-    return await _collect(sub, msgs)
+    return await _collect(sub, msgs, start=own_start)
 
 
 def _has_tool_calls(msg: dict) -> bool:
@@ -233,13 +259,16 @@ def _has_tool_calls(msg: dict) -> bool:
     return False
 
 
-def _fork_messages(parent_msgs: list[dict], trigger: str) -> list[dict]:
+def _fork_messages(parent_msgs: list[dict], trigger: str) -> tuple[list[dict], int]:
     """构造 Fork 初始消息：深拷贝父历史 + 裁剪 + 追加 trigger。
 
     Fork 由主 Agent 在「当前轮工具执行中」发起：父 `_msgs` 末尾是
     assistant(tool_calls=agent)，其结果尚未回灌。tool_use 后必须紧跟
     tool_result，否则 Anthropic/OpenAI 都会 400 —— 故裁掉该 dangling 尾消息。
     trigger 并入末条 user（若末条是 user），避免连续同角色。
+
+    返回 `(msgs, own_start)`：`own_start` 为 trigger 所在消息下标，轨迹只取
+    该下标之后的自有部分（父子历史不进入任务面板，F11）。
     """
     import copy
 
@@ -254,4 +283,4 @@ def _fork_messages(parent_msgs: list[dict], trigger: str) -> list[dict]:
             msgs[-1]["content"] = (content or "") + "\n\n" + trigger
     else:
         msgs.append({"role": "user", "content": trigger})
-    return msgs
+    return msgs, len(msgs) - 1

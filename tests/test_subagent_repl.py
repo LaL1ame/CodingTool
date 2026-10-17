@@ -35,7 +35,7 @@ def _app(msgs, *, streaming=False):
 def _task(status="done", summary="结论", usage=None, role="architect", task_id=1):
     return SimpleNamespace(task_id=task_id, role=role, status=status,
                            summary=summary, error="boom" if status == "failed" else "",
-                           usage=usage)
+                           usage=usage, created_at=0.0)
 
 
 def test_append_new_user_message():
@@ -78,6 +78,26 @@ def test_done_idle_appends():
     app._on_subagent_done(_task())
     assert msgs[-1]["role"] == "user"
     assert "结论" in msgs[-1]["content"]
+
+
+def test_done_displays_summary_in_chat():
+    """F11：后台摘要直接写聊天区（A 行为），无需再发一轮。"""
+    msgs = []
+    app = _app(msgs)
+    app._on_subagent_done(_task(summary="架构评审通过"))
+    joined = "\n".join(app._log.lines)
+    assert "子任务 #1" in joined and "结论" in joined
+    assert "架构评审通过" in joined
+    # 同时仍进入主对话上下文
+    assert "架构评审通过" in msgs[-1]["content"]
+
+
+def test_summary_markup_escaped_in_chat():
+    """模型输出里的 [...] 不能被当作 Rich 标记解析。"""
+    app = _app([])
+    app._on_subagent_done(_task(summary="[red]伪标记[/red]"))
+    joined = "\n".join(app._log.lines)
+    assert "\\[red]" in joined
 
 
 def test_failed_does_not_append():
