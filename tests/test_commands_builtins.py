@@ -1,4 +1,6 @@
 """T6 单测 —— 内置命令注册完整性(F7)。"""
+from types import SimpleNamespace
+
 from codepilot.commands.builtins import build_registry
 from codepilot.commands.registry import CommandKind
 
@@ -9,8 +11,9 @@ def test_builtin_full_set_and_no_conflicts():
     names = {s.name for s in r.all()}
     expected = {"help", "exit", "plan", "do", "mode", "auto", "manual", "strict",
                 "edits", "compact", "continue", "memory", "forget", "clear",
-                "session", "permission", "status", "reload"}
-    assert names == expected  # state15: /review 移交内置 review Skill(非内置命令)
+                "session", "permission", "status", "reload",
+                "agents", "bg"}  # state15: /review 移交内置 review Skill(非内置命令)；state17: +agents/bg
+    assert names == expected
 
 
 def test_kinds_assignment():
@@ -36,3 +39,60 @@ def test_no_hidden_in_default_view():
     shown = r.all(include_hidden=False)
     assert all(not s.hidden for s in shown)
     assert len(shown) == len(r.all(include_hidden=True))
+
+
+# —— state17: /agents /bg ——
+
+class _Ctx:
+    def __init__(self, manager="missing"):
+        if manager != "missing":
+            self.subagent_manager = manager
+        self.shown: list[str] = []
+
+    def show(self, message: str) -> None:
+        self.shown.append(message)
+
+
+class _Mgr:
+    def tasks(self):
+        return [SimpleNamespace(task_id=1, kind="defined", role="architect",
+                                status="done", usage=None)]
+
+    def background_now(self, task_id):
+        return task_id == 1
+
+
+def test_agents_lists_tasks():
+    ctx = _Ctx(_Mgr())
+    build_registry().resolve("agents").handler(ctx, "")
+    assert len(ctx.shown) == 1
+    assert "#1" in ctx.shown[0]
+    assert "architect" in ctx.shown[0]
+
+
+def test_agents_not_enabled_degrades():
+    ctx = _Ctx()  # 无 subagent_manager 属性 → getattr None
+    build_registry().resolve("agents").handler(ctx, "")
+    assert "未启用" in ctx.shown[0]
+
+
+def test_bg_switches_task():
+    ctx = _Ctx(_Mgr())
+    build_registry().resolve("bg").handler(ctx, "1")
+    assert "切到后台" in ctx.shown[0]
+
+
+def test_bg_invalid_and_unknown():
+    ctx = _Ctx(_Mgr())
+    build_registry().resolve("bg").handler(ctx, "")
+    assert "用法" in ctx.shown[-1]
+    build_registry().resolve("bg").handler(ctx, "abc")
+    assert "无效 task_id" in ctx.shown[-1]
+    build_registry().resolve("bg").handler(ctx, "99")
+    assert "不在前台等待中" in ctx.shown[-1]
+
+
+def test_bg_not_enabled_degrades():
+    ctx = _Ctx()  # 无 manager → 安全降级
+    build_registry().resolve("bg").handler(ctx, "1")
+    assert "未启用" in ctx.shown[-1]

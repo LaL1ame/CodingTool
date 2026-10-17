@@ -171,6 +171,47 @@ def build_registry() -> CommandRegistry:
         )
     _register("permission", CommandKind.UI, "显示当前权限模式与自动编辑状态", h_permission)
 
+    # —— state17: SubAgent 后台任务管理（经 getattr 访问 manager，未启用时安全降级）——
+    def _subagent_manager(ctx):
+        return getattr(ctx, "subagent_manager", None)
+
+    def h_agents(ctx, params):
+        mgr = _subagent_manager(ctx)
+        if mgr is None:
+            ctx.show("SubAgent 系统未启用")
+            return
+        tasks = mgr.tasks()
+        if not tasks:
+            ctx.show("当前没有子 Agent 任务")
+            return
+        lines = ["[bold]子 Agent 任务[/bold] (id | 类型 | 角色 | 状态 | 用量)"]
+        for t in tasks:
+            usage = f"{t.usage.input_tokens}t" if t.usage else "-"
+            lines.append(f"  #{t.task_id} | {t.kind} | {t.role or '-'} | {t.status} | {usage}")
+        ctx.show("\n".join(lines))
+    _register("agents", CommandKind.LOCAL, "列出子 Agent 后台任务", h_agents)
+
+    def h_bg(ctx, params):
+        mgr = _subagent_manager(ctx)
+        if mgr is None:
+            ctx.show("SubAgent 系统未启用")
+            return
+        kw = params.strip()
+        if not kw:
+            ctx.show("用法: /bg <task_id> —— 把前台运行中的子 Agent 任务切后台")
+            return
+        try:
+            task_id = int(kw)
+        except ValueError:
+            ctx.show(f"无效 task_id: {kw!r}")
+            return
+        if mgr.background_now(task_id):
+            ctx.show(f"已把子 Agent 任务 #{task_id} 切到后台")
+        else:
+            ctx.show(f"任务 #{task_id} 不在前台等待中（可能已完成或非前台）")
+    _register("bg", CommandKind.LOCAL, "把前台子 Agent 任务切后台", h_bg,
+              usage="<task_id>", arg_hint="task_id")
+
     # state15: /review 命令已移交内置 review Skill（统一入口）。旧 PROMPT 载荷
     # 并入 codepilot/skills/data/review/SKILL.md 正文；REVIEW_PROMPT 保留仅向后兼容。
     # —— PROMPT: 预设提示词送 AI ——
