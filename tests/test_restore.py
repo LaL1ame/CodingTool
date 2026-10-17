@@ -117,6 +117,44 @@ def test_restore_anthropic_rebuilds_tool_use_content(tmp_path):
     assert res["content"][0]["tool_use_id"] == "tc1"
 
 
+def test_restore_anthropic_merges_parallel_tool_results(tmp_path):
+    """同轮多个 tool_use：结果必须合并进同一条 user 消息（Anthropic 协议要求）。
+
+    真机回归：分开成两条 user(tool_result) 会 400
+    「tool_use ids were found without tool_result blocks immediately after」。
+    """
+    p = store.new_session_path(tmp_path, ts=1700000000)
+    store.append_message(p, role="user", content="查两个文件")
+    store.append_assistant_toolcalls(
+        p, content="",
+        tool_calls=[{"id": "c1", "name": "read", "arguments": {"file_path": "a"}},
+                    {"id": "c2", "name": "read", "arguments": {"file_path": "b"}}])
+    store.append_tool_result(p, call_id="c1", name="read", output="A")
+    store.append_tool_result(p, call_id="c2", name="read", output="B")
+
+    r = restore.restore_chat(p, protocol="anthropic", gap_hours=0)
+    assert [m["role"] for m in r["messages"]] == ["user", "assistant", "user"]
+    blocks = r["messages"][2]["content"]
+    assert [b["type"] for b in blocks] == ["tool_result", "tool_result"]
+    assert [b["tool_use_id"] for b in blocks] == ["c1", "c2"]
+
+
+def test_restore_openai_keeps_one_tool_message_per_result(tmp_path):
+    """OpenAI 保持每条结果一个 role=tool 消息（不可合并）。"""
+    p = store.new_session_path(tmp_path, ts=1700000000)
+    store.append_message(p, role="user", content="查两个文件")
+    store.append_assistant_toolcalls(
+        p, content="",
+        tool_calls=[{"id": "c1", "name": "read", "arguments": {}},
+                    {"id": "c2", "name": "read", "arguments": {}}])
+    store.append_tool_result(p, call_id="c1", name="read", output="A")
+    store.append_tool_result(p, call_id="c2", name="read", output="B")
+
+    r = restore.restore_chat(p, protocol="openai", gap_hours=0)
+    assert [m["role"] for m in r["messages"]] == ["user", "assistant", "tool", "tool"]
+    assert [m["tool_call_id"] for m in r["messages"][2:]] == ["c1", "c2"]
+
+
 # —— store: 会话 ID 格式 + 排序 ——
 def test_new_session_id_format_and_unique_same_second(tmp_path):
     import re

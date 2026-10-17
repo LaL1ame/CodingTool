@@ -53,6 +53,14 @@ def _openai_call(call: dict) -> dict:
             "function": {"name": call.get("name"), "arguments": args}}
 
 
+def _is_tool_result_message(msg: dict) -> bool:
+    """是否为「仅含 tool_result 块」的 user 消息（Anthropic 结果批次）。"""
+    content = msg.get("content")
+    return (msg.get("role") == "user" and isinstance(content, list)
+            and bool(content)
+            and all(b.get("type") == "tool_result" for b in content))
+
+
 def _build_messages(segments: list[dict], protocol: str) -> list[dict]:
     """把段落重建为 request 体消息序列,按协议产出原生形态(可续跑)。
 
@@ -60,6 +68,12 @@ def _build_messages(segments: list[dict], protocol: str) -> list[dict]:
     协议重建请求形态,否则 resume 后原样回灌给 provider 会 400
     (openai 报 missing messages.tool_calls.function;anthropic 需 tool_use/content)。
     此前的恢复对两者都不合规,只在信手 live 兼容。
+
+    真机修正:同一条 assistant 消息有多个 tool_use 时,Anthropic 要求所有
+    tool_result **放在同一条 user 消息里**并紧跟其后;落盘却是每个结果一行。
+    故连续 tool_result 段合并进同一个 user content 列表,否则 resume 后报
+    「tool_use ids were found without tool_result blocks immediately after」400。
+    OpenAI 则保持每条结果一个 role=tool 消息(协议要求)。
     """
     is_anthropic = protocol.lower() == "anthropic"
     msgs: list[dict] = []
@@ -86,9 +100,12 @@ def _build_messages(segments: list[dict], protocol: str) -> list[dict]:
         elif t == "tool_result":
             content = s.get("output") or s.get("error") or ""
             if is_anthropic:
-                msgs.append({"role": "user", "content": [
-                    {"type": "tool_result", "tool_use_id": s.get("call_id"),
-                     "content": content}]})
+                block = {"type": "tool_result",
+                         "tool_use_id": s.get("call_id"), "content": content}
+                if msgs and _is_tool_result_message(msgs[-1]):
+                    msgs[-1]["content"].append(block)
+                else:
+                    msgs.append({"role": "user", "content": [block]})
             else:
                 msgs.append({"role": "tool", "tool_call_id": s.get("call_id"),
                              "content": content})
