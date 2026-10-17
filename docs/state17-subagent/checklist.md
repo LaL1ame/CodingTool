@@ -30,7 +30,7 @@
 ## 验证与测试
 
 - [x] 项目无语法错误、模块可导入（验证：`python -c "import codepilot.subagents, codepilot.ui.app, codepilot.main"`）。
-- [x] 全量单测通过（验证：`python -m pytest -q` —— **581 passed**，state17 主体 548 + 观察视图增量 33）。
+- [x] 全量单测通过（验证：`python -m pytest -q` —— **584 passed**，state17 主体 548 + 观察视图/恢复修正 36）。
 - [x] lint 无回归（验证：`ruff check codepilot/subagents tests/subagents` 零告警；`ruff check .` 27 处既有基线未新增）。
 
 ## 端到端场景（阶段六真机 / TUI）
@@ -40,7 +40,7 @@
 - [ ] 场景 3（多层防线）—— **预期**：`can_delegate: false`（默认）的角色子 Agent **看不到 `agent` 工具**（无法再委派）；`architect`（can_delegate: true）在多级时受 max_depth 上限约束（配 1 时子 Agent 内仍不可见 agent）；后台任务只读（side_effect 工具被滤）。
 - [ ] 场景 4（后台管理）—— **预期**：`/agents` 列出全部后台任务（id/角色/状态/用量）；前台跑 `agent` 任务时按 **Ctrl+B**（输入框禁用，`/bg` 不可输入）切后台后主对话不阻塞、子 Agent 继续跑完；空闲时 `/bg <id>` 仍可用；并发超过 4 时新委派回灌「并发已满」。
 - [ ] 场景 5（故障隔离）—— **预期**：让子 Agent 执行注定失败的任务（如未知角色），主 Agent 继续跑不崩溃，日志与系统行有明确 `error` 记录；取消后台任务后 status 变 cancelled。
-- [ ] 场景 6（子任务观察视图，增量 B）—— **预期**：后台 fork 运行中，输入框上方出现计数提示；**F3** 打开任务列表，↑↓ 切换、Enter 打开完整轨迹（用户/助手/工具调用/工具结果）、Esc 回列表且选中不变、Esc 关闭；后台完成时聊天区直接出现「子任务 #N 结论」+ 摘要；前台定义式任务完成后同样可在 F3 查看轨迹；轨迹内 `[x]`/`<file>` 等字符原样显示；F3 开关后可直接继续输入。
+- [x] 场景 6（子任务观察视图，增量 B）—— **真机通过**：前台定义式任务完成后可在 F3 查看轨迹；后台 fork 提示行、完成摘要直显；F3 列表 ↑↓/Enter/Esc 与选中保持；`[x] /agents <file>` 在轨迹中原样显示；F3 开关后可直接继续输入。
 
 ## 验收口径
 
