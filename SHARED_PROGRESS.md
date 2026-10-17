@@ -10,7 +10,7 @@
 
 ### state17（开发完成 + 观察视图增量，待真机验收）
 **state17：SubAgent 系统**（`docs/state17-subagent/`）
-- **状态：四文档获批后开发完成；F11 观察视图增量已完成并**真机验收通过**（场景 6），584 测试绿，state17 文件 ruff 全清；主体场景 1–5 待最终收口。**
+- **状态：开发完成 + 真机验收全部通过（场景 1–6，2026-10-18 收口），584 测试绿，state17 文件 ruff 全清。**
 - 目标：主 Agent 用统一 `agent` 工具把子任务委派给独立子 Agent（干净上下文/受限工具/独立权限），定义式按角色、Fork 式继承历史，结果回灌主对话，解决上下文污染。承接 state16 `subagent` Hook 动作占位。
 - **架构**：新包 `codepilot/subagents/`（model/loader/runner/manager/tool + data 内置样板）。子 Agent **复用现有 Agent 类**（N6）：共享 provider/registry/hooks/fs，独立 permission/context_manager/msgs。角色 = Markdown+YAML frontmatter，四级 `[插件<内置<用户<项目]` 同名覆盖。多层防线落在 `Agent._build_tools` 新增 `tool_filter` 注入点：白名单∪系统 → 黑名单 → agent 禁（can_delegate∧depth<max_depth）→ 后台/plan 只读。深度用 contextvar；后台并发上限 4。
 - **关键裁决**：独立体系 Skill 不动；结果回灌模型+系统行；执行中仅状态行+完成摘要；前台超时转后台；`/bg` 手动切；后台完成摘要流式中先入队、收尾回灌（防插进 tool_call/tool_result 破坏协议）；Fork 强制后台+继承父工具集快照。
