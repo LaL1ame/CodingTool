@@ -154,6 +154,9 @@ class WorktreeManager:
                     if meta is None:
                         raise WorktreeError(
                             f"目录已存在但不是受管理的 worktree: {path}")
+                    logger.info(
+                        "worktree 复用 %s branch=%s (%s)",
+                        resolved, meta.branch, path)
                     return WorktreeHandle(
                         name=resolved, path=path, branch=meta.branch,
                         base=meta.base, created_at=meta.created_at,
@@ -177,6 +180,10 @@ class WorktreeManager:
                     created_at = time.time()
                     self._git.add_worktree(path, branch, base)
 
+                logger.info(
+                    "worktree %s %s branch=%s base=%s (%s)",
+                    "挂接" if had_branch else "创建",
+                    resolved, branch, base, path)
                 meta = WorktreeMeta(
                     name=resolved, branch=branch, base=base,
                     created_at=created_at, role=role, task_id=task_id)
@@ -206,11 +213,15 @@ class WorktreeManager:
                 ahead = self._git.commits_ahead(handle.base, cwd=handle.path)
                 decision = decide_retention(dirty=dirty, ahead=ahead)
                 if decision.keep:
+                    logger.info(
+                        "worktree 保留 %s: %s", handle.name, decision.reason)
                     return ExitResult(
                         True, decision.reason, handle.path, handle.branch)
                 self._remove_dir_and_branch(
                     handle.name, handle.path, handle.branch,
                     delete_branch=True, force=False)
+                logger.info(
+                    "worktree 清理 %s: %s", handle.name, decision.reason)
                 return ExitResult(
                     False, decision.reason, handle.path, handle.branch)
             except Exception as e:  # noqa: BLE001 - 清理失败不掩盖任务结果
@@ -244,6 +255,9 @@ class WorktreeManager:
             if not force:
                 self._git.delete_branch(meta.branch)
             delete_meta(self._root, resolved)
+            logger.info(
+                "worktree 删除 %s force=%s branch=%s",
+                resolved, force, meta.branch)
             reason = "removed/forced-branch-kept" if force else "removed/clean"
             return ExitResult(False, reason, path, meta.branch)
 
@@ -305,8 +319,10 @@ class WorktreeManager:
                         name, path, managed.branch,
                         delete_branch=True, force=False)
                     removed.append(name)
+                    logger.info("worktree 过期清理删除 %s", name)
                 except Exception as e:  # noqa: BLE001 - 单项失败不中断
                     skipped.append((name, f"error: {e}"))
+                    logger.info("worktree 过期清理跳过 %s: %s", name, e)
             return CleanupReport(tuple(removed), tuple(skipped))
 
     async def run_periodic_cleanup(self) -> None:
