@@ -91,6 +91,18 @@ class SubAgentManager:
     def tasks(self) -> list[SubAgentTask]:
         return list(self._tasks.values())
 
+    def role_list_block(self) -> str:
+        """可委派角色名册（state17 修正：注入 system prompt，让模型知道有哪些角色）。
+
+        模型看不到角色文件，若不注入名册便不会主动用 agent 工具（真机验收暴露）。
+        """
+        if not self._known:
+            return ""
+        lines = ["## 可委派的子 Agent 角色（用 agent 工具，mode=defined，role=名字）"]
+        for role in sorted(self._known.values(), key=lambda r: r.name):
+            lines.append(f"- {role.name} — {role.description}")
+        return "\n".join(lines)
+
     def _require_role(self, role_name: str) -> AgentRole:
         role = self._known.get(role_name)
         if role is None:

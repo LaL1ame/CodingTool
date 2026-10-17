@@ -16,6 +16,7 @@
 - **关键裁决**：独立体系 Skill 不动；结果回灌模型+系统行；执行中仅状态行+完成摘要；前台超时转后台；`/bg` 手动切；后台完成摘要流式中先入队、收尾回灌（防插进 tool_call/tool_result 破坏协议）；Fork 强制后台+继承父工具集快照。
 - 文件：`codepilot/subagents/*`、`agent.py`（tool_filter + visible_tool_names）、`ui/app.py`（回灌接线 + pending 队列）、`main.py`（装配 + AgentTool 注册）、`commands/builtins.py`（/agents /bg）、`pyproject.toml`、7 个测试文件。
 - 命令/快捷键：`/agents` 任务列表、`/bg <task_id>` 手动切后台；前台委派时输入框禁用，**Ctrl+B** 是 TUI 内切后台的可达入口。
+- **真机验收修正（场景1）**：模型不知道有哪些角色 → 不调 agent 工具而自己用 read/glob 干活。补「角色名册」注入（system prompt volatile 块 + agent 工具 description + role enum 动态生成）。
 - 遗留 / 待确认：真机验收（5 场景）；`can_delegate` 默认 max_depth=1 下不生效，需配 2 才启用多级委派；插件层仅预留接口。
 - 新上手：读本文 + `docs/state17-subagent/{spec,plan,task,checklist}.md` 即可恢复。
 

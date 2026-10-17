@@ -8,6 +8,7 @@
 - [x] 四级角色加载生效：插件<内置<用户<项目 同名覆盖；单文件坏/缺失跳过不阻断；非法字段启动期 RoleError（验证：`tests/subagents/test_loader.py` 四级用例 + 校验用例）。
 - [x] `agent` 工具常驻：system_exempt=True、side_effect=False，任何 Skill 白名单/plan 模式不消失（验证：`tests/subagents/test_tool.py` + `test_filters.py` 断言）。
 - [x] `tool_filter` 注入点：`_build_tools` 末尾调用，不传时行为与现状一致（验证：`tests/test_agent_tool_filter.py`）。
+- [x] 角色名册可发现（真机验收修正）：system prompt volatile 块 + agent 工具 description/role enum 均列出角色（验证：`tests/subagents/test_manager.py`、`test_tool.py`、`tests/test_subagent_injection.py`）。
 - [x] 多层防线纯函数四场景：白名单∪系统 / 黑名单剔除 / agent 禁（can_delegate∧depth<max_depth 才可见）/ 后台与 plan 只读（验证：`tests/subagents/test_filters.py` 逐场景）。
 - [x] 定义式/Fork 独立 Agent 构造：共享 provider/registry/hooks，独立 permission/context_manager/msgs（验证：`tests/subagents/test_runner.py` mock provider）。
 

@@ -221,6 +221,7 @@ tests/subagents/
 | D14 | 子 Agent 达轮次上限 | 视为「尽力完成」：摘要注明「达轮次上限」，非失败 | 跑到底非交互语境，limit 是检查点非 error（与主 Agent F2 语义一致） |
 | D15 | 插件层 | **预留发现接口 + 默认空目录**，本阶段不真实支持第三方分发 | 范围控制（YAGNI）；目录顺序固定，后续补插件源即可 |
 | D16 | 内置角色 | 内置 `architect` 示例（放行 agent 的样板），走 `package-data` | 开箱即用参照 state15 内置样板惯例；也是 can_delegate 语义的可运行示例 |
+| D17 | 角色名册注入（真机验收修正） | system prompt 加 volatile 名册块（`subagent_injector`，同 memory/skill/hook 注入缝）+ agent 工具 description 列角色名 + `role` 参数 enum 动态生成 | 真机场景 1 暴露：模型看不到角色文件，不知道有哪些角色，遂自己用 read/glob 干活而不调 agent 工具。名册让委派可发现 |
 
 ## Spec 覆盖
 

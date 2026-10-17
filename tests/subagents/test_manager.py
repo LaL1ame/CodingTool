@@ -76,6 +76,17 @@ def _patch_runner(monkeypatch, result=("summary", None), error=None):
     monkeypatch.setattr(manager_mod, "run_fork_agent", _fork)
 
 
+def test_role_list_block():
+    mgr = _mgr()
+    block = mgr.role_list_block()
+    assert "- r — d" in block
+    assert "agent 工具" in block
+
+
+def test_role_list_block_empty():
+    assert _mgr(known={}).role_list_block() == ""
+
+
 async def test_delegate_defined_foreground(monkeypatch):
     _patch_runner(monkeypatch)
     mgr = _mgr()

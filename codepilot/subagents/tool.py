@@ -23,15 +23,18 @@ class AgentTool(Tool):
 
     @property
     def description(self) -> str:
+        roles = "、".join(sorted(self._manager.known)) or "无"
         return (
             "委派子任务给独立的子 Agent（干净上下文、受限工具集）。"
             "defined：按角色执行（需 role + prompt）；"
             "fork：继承当前对话历史与工具集（强制后台，prompt 必填）。"
             "可设 background 显式转后台、timeout 前台超时自动转后台。"
+            f"当前可用角色：{roles}。"
         )
 
     @property
     def parameters(self) -> dict:
+        roles = sorted(self._manager.known)
         return {
             "type": "object",
             "properties": {
@@ -41,6 +44,7 @@ class AgentTool(Tool):
                 },
                 "role": {
                     "type": "string",
+                    **({"enum": roles} if roles else {}),
                     "description": "defined 模式的角色名（frontmatter name）",
                 },
                 "prompt": {

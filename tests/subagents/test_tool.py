@@ -9,6 +9,7 @@ from codepilot.subagents.tool import AgentTool
 class _FakeManager:
     def __init__(self):
         self.calls = []
+        self.known = {"reviewer": None, "architect": None}
 
     async def delegate(self, kind, prompt, *, role=None, background=False, timeout=None):
         self.calls.append((kind, prompt, role, background, timeout))
@@ -31,6 +32,9 @@ def test_agent_tool_name_and_schema(mgr):
     assert t.name == "agent"
     assert t.parameters["required"] == ["mode", "prompt"]
     assert t.parameters["properties"]["mode"]["enum"] == ["defined", "fork"]
+    # state17 修正：角色名进 description + role 枚举，引导模型主动委派
+    assert "architect" in t.description
+    assert t.parameters["properties"]["role"]["enum"] == ["architect", "reviewer"]
 
 
 async def test_defined_delegation(mgr):

@@ -100,6 +100,8 @@ class Agent:
         tool_filter: Callable[[list[Tool]], list[Tool]] | None = None,
         hooks=None,
         hook_injector: Callable[[], list[str]] | None = None,
+        # state17: 可委派子 Agent 角色名册的 volatile 块（让模型知道有哪些角色）。
+        subagent_injector: Callable[[], list[str]] | None = None,
         stall_enabled: bool = True,
         stall_repeat_k: int = 2,
         stall_window: int = 3,
@@ -129,6 +131,7 @@ class Agent:
         # 不感知 Hook 内部,零配置时全部短路(N5)。
         self._hooks = hooks
         self._hook_injector = hook_injector
+        self._subagent_injector = subagent_injector
         self._plan_mode = False
         self._stall_enabled = stall_enabled
         self._stall_msg = stall_msg
@@ -203,6 +206,8 @@ class Agent:
             memory_blocks = self._memory_injector() if self._memory_injector else []
             skill_blocks = self._skill_injector() if self._skill_injector else []
             hook_blocks = self._hook_injector() if self._hook_injector else []
+            subagent_blocks = (
+                self._subagent_injector() if self._subagent_injector else [])
             sp = build_system_prompt(
                 self._env or EnvContext(cwd=str(self._workspace), date=""),
                 plan_mode=self._plan_mode,
@@ -211,6 +216,7 @@ class Agent:
                 memory_blocks=memory_blocks,
                 skill_blocks=skill_blocks,
                 hook_blocks=hook_blocks,
+                subagent_blocks=subagent_blocks,
             )
             if self._plan_mode:
                 n_plan = sum(1 for b in sp.volatile if "session_instruction" in b)

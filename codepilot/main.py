@@ -195,17 +195,8 @@ def main() -> None:
     hook_injector = HookInjector()
     hook_engine = HookEngine(hook_rules, hook_injector)
 
-    agent = Agent(provider=provider, registry=registry, workspace=workspace,
-                  max_rounds=agent_config.max_rounds, max_unknown=agent_config.max_unknown,
-                  env=env, refresh_every=agent_config.prompt_refresh_every,
-                  permission=permission, context_manager=context_manager,
-                  memory_injector=memory.build,
-                  skill_injector=skill_manager.skill_blocks,
-                  skill_whitelist=skill_manager.active_whitelist,
-                  hooks=hook_engine,
-                  hook_injector=hook_injector.hook_blocks)
-
     # —— SubAgent 系统(state17):角色四级加载 + 委派中心 + 常驻 agent 工具 ——
+    # 先于 Agent 构造：agent 的角色名册注入器与 registry 工具注册都依赖它。
     from codepilot.subagents import AgentTool, RoleError, SubAgentManager, load_all
     try:
         role_map = load_all(
@@ -223,6 +214,21 @@ def main() -> None:
     )
     registry.register(AgentTool(subagent_manager))  # 系统级常驻工具
     # 父上下文/工具集取数在 App.on_mount 接线（ChatManager 尚未创建）。
+
+    def _subagent_blocks() -> list[str]:
+        block = subagent_manager.role_list_block()
+        return [block] if block else []
+
+    agent = Agent(provider=provider, registry=registry, workspace=workspace,
+                  max_rounds=agent_config.max_rounds, max_unknown=agent_config.max_unknown,
+                  env=env, refresh_every=agent_config.prompt_refresh_every,
+                  permission=permission, context_manager=context_manager,
+                  memory_injector=memory.build,
+                  skill_injector=skill_manager.skill_blocks,
+                  skill_whitelist=skill_manager.active_whitelist,
+                  hooks=hook_engine,
+                  hook_injector=hook_injector.hook_blocks,
+                  subagent_injector=_subagent_blocks)
 
     # —— 会话 resume(state12)：-c 续最近 / -r 列表选择 / --new 强制新开;
     #    默认按 session.auto_resume 自动接最近。恢复走 restore_chat(截断/提醒),
