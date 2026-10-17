@@ -137,10 +137,11 @@ def test_load_all_bad_file_skipped(tmp_path):
 
 
 def test_load_all_empty_dirs_ignored(tmp_path):
-    """无任何角色目录 → 空 known。"""
+    """无任何角色目录 → 空 known（隔离内置，避免内置 architect 干扰）。"""
     ws = tmp_path / "empty"
     ws.mkdir()
-    assert load_all(ws) == {}
+    assert load_all(ws, builtin_root=tmp_path / "no_builtin",
+                    user_root=tmp_path / "no_user") == {}
 
 
 def test_load_all_unknown_tool_failfast(tmp_path):
