@@ -6,9 +6,9 @@
 
 ---
 
-## 最近一次更新：2026-10-17
+## 最近一次更新：2026-10-18
 
-### state17（开发完成 + 观察视图增量，待真机验收）
+### state17（开发完成 + 真机验收通过）
 **state17：SubAgent 系统**（`docs/state17-subagent/`）
 - **状态：开发完成 + 真机验收全部通过（场景 1–6，2026-10-18 收口），584 测试绿，state17 文件 ruff 全清。**
 - 目标：主 Agent 用统一 `agent` 工具把子任务委派给独立子 Agent（干净上下文/受限工具/独立权限），定义式按角色、Fork 式继承历史，结果回灌主对话，解决上下文污染。承接 state16 `subagent` Hook 动作占位。
@@ -22,8 +22,23 @@
 - **F11 观察视图增量（方案 B）**：`runner` 返回 `RunResult(summary, usage, entries)`，结束时把协议原生 msgs 扁平化为 `TranscriptEntry` 快照（Fork 只存自有部分，不持有父历史深拷贝）；`SubAgentTask.entries` 统一承载成功/失败轨迹。TUI：输入框上方提示行 + **F3** 任务列表（ListView 原生 ↑↓、Enter 打开轨迹、Esc 返回/关闭，0.5s 原地刷新保选中）；轨迹屏用 RichLog + Text 对象（markup 不注入）。后台完成摘要**直接写聊天区**（escaped），同时照旧排队进 `_msgs`。顺带修复流式结束输入框焦点丢失（Textual disabled→blur 不自动恢复）。
 - 文件增量：`subagents/transcript.py`、`ui/screens/subagent_screen.py`、`tests/subagents/test_transcript.py`、`tests/test_subagent_screen.py`、`tests/test_subagent_app.py`。
 - **真机修正（观察视图）**：① 完成后再看轨迹耗时持续增长（711.1s）→ 终态记录 `finished_at`，耗时固定；② 恢复会话后 Anthropic 报 tool_use 缺结果 400 → `restore._build_messages` 把同轮多个 `tool_result` 合并进同一条 user 消息（OpenAI 保持每条一个 `role=tool`）。
-- 遗留 / 待确认：真机验收（场景 1–6）；`can_delegate` 默认 max_depth=1 下不生效，需配 2 才启用多级委派；插件层仅预留接口；`manager.cancel` 只改状态不真正取消 asyncio task（既有缺陷，本次未暴露取消入口）。
+- 已知问题（未修，按影响排序）：
+  1. **Anthropic 流式 usage 解析不全**：`protocols.py` 只在 `message_stop` 取 usage；Anthropic 兼容端点（含当前 DeepSeek `/anthropic`）把 input/cache 放在 `message_start`、output 放在 `message_delta` → token/cache 计数可能静默为 0（影响 AC4/AC5 可观测性）。
+  2. **子 Agent 可 `load_skill`**：`tool_filter` 保留 `system_exempt` 工具，`load_skill` 会改共享 `SkillManager` 状态，违反 F5「运行时状态隔离」。
+  3. **`manager.cancel()` 只改状态**：未真正 `task.cancel()`，后台协程继续跑，完成后可能覆盖为 done（当前 UI 未暴露取消入口）。
+  4. `can_delegate` 默认 `max_depth=1` 下不生效，需配 2 才启用多级委派；插件级角色源仅预留空目录。
 - 新上手：读本文 + `docs/state17-subagent/{spec,plan,task,checklist}.md` 即可恢复。
+
+### 下一步（待用户确认，勿提前开工）
+- **阶段目标：待定**（用户将在新会话指定）。
+- 候选任务（建议优先级，未排期）：
+  1. 修复 Anthropic 流式 usage 解析（`message_start` input/cache + `message_delta` output；补测试）。
+  2. 子 Agent 禁用/隔离 `load_skill`（多层防线补一条；评估是否共享 SkillManager）。
+  3. `manager.cancel` 真正取消 asyncio task（保存 task handle；明确取消语义）。
+  4. 插件级角色源（`subagents/loader.py discover_role_dirs` 已留位置）。
+  5. 跨会话后台任务持久化 / Worktree 隔离 / 多 Agent 编排（state17 明确不做，需新 spec）。
+- 入口文件：`SHARED_PROGRESS.md` → `docs/state17-subagent/` → `codepilot/subagents/`；TUI 观察视图入口 `codepilot/ui/screens/subagent_screen.py`；装配入口 `codepilot/main.py`。
+- 注意事项：新功能仍走 design-first（spec→plan→task→checklist 获批再写码）；`config.yaml`/`.hooks.yaml` 为 gitignore 运行时配置，含密钥，勿提交；全量测试基线 584，`ruff check .` 既有 27 告警不得新增。
 
 ### state16（开发完成 + 真机验收通过）
 **state16：Hook 系统**（`docs/state16-hook-system/`）
