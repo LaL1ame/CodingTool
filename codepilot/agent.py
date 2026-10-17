@@ -1,16 +1,22 @@
 """Agent 层：ReAct 循环编排 — 多轮「调用模型 → 执行工具 → 回灌」直到完成。"""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from codepilot.permissions import PermissionManager
 from codepilot.protocols import Delta, ToolCall, ToolResult
 from codepilot.prompt import EnvContext, build_system_prompt
 from codepilot.providers import BaseProvider
 from codepilot.tools.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from codepilot.tools.base import Tool
 
 
 class _StallDetector:
@@ -89,6 +95,9 @@ class Agent:
         memory_injector: Callable[[], list[str]] | None = None,
         skill_injector: Callable[[], list[str]] | None = None,
         skill_whitelist: Callable[[], set[str] | None] | None = None,
+        # state17: 可选工具过滤回调（子 Agent 多层防线注入点）。在 skill 白名单 +
+        # plan 只读过滤之后调用；None 时行为与现状一致（向后兼容）。
+        tool_filter: Callable[[list[Tool]], list[Tool]] | None = None,
         hooks=None,
         hook_injector: Callable[[], list[str]] | None = None,
         stall_enabled: bool = True,
@@ -113,6 +122,8 @@ class Agent:
         # 同样是「不透明 volatile 块 / 工具名集合回调」,Agent 不感知 skill 内部。
         self._skill_injector = skill_injector
         self._skill_whitelist = skill_whitelist
+        # state17: 子 Agent 多层防线注入点（None 时行为与现状一致）
+        self._tool_filter = tool_filter
         # state16:可选 Hook 引擎与注入器。Agent 只当它们是「不透明回调」:
         # engine 暴露 fire/fire_pre_tool,injector 暴露 hook_blocks() ——
         # 不感知 Hook 内部,零配置时全部短路(N5)。
@@ -152,6 +163,9 @@ class Agent:
                              if t.name in wl or t.system_exempt]
         if self._plan_mode:
             all_tools = [t for t in all_tools if not t.side_effect]
+        # state17: 子 Agent 多层防线（在 skill 白名单 + plan 只读之后叠加）
+        if self._tool_filter is not None:
+            all_tools = self._tool_filter(all_tools)
         if not all_tools:
             return None
         if self._protocol == "anthropic":
