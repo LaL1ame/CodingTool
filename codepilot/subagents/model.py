@@ -34,6 +34,7 @@ class AgentRole:
     model: str | None = None             # 可选指定模型（None = 继承当前 provider）
     max_rounds: int | None = None        # 可选最大轮次（None = 继承默认）
     permission: str | None = None        # 可选权限模式 manual/auto/strict/permissive（None=继承主）
+    isolation: str | None = None         # 可选隔离模式（当前仅 "worktree"）
     can_delegate: bool = False           # 是否放行 agent 工具（F7 显式放行，受深度上限约束）
     path: Path | None = None             # 来源文件（插件/内置/用户/项目）
     ordinal: int = 0                     # 文件内序号（稳定标识）
@@ -54,6 +55,7 @@ class SubAgentTask:
     created_at: float = 0.0
     finished_at: float = 0.0             # 终态时间（运行中为 0，F11 耗时展示）
     entries: "tuple[TranscriptEntry, ...]" = ()  # 轨迹快照（F11，完成/失败时写入）
+    worktree: str = ""                   # state18: 隔离目录名（空=非隔离）
 
     @property
     def duration(self) -> float:

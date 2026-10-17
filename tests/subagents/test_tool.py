@@ -11,8 +11,9 @@ class _FakeManager:
         self.calls = []
         self.known = {"reviewer": None, "architect": None}
 
-    async def delegate(self, kind, prompt, *, role=None, background=False, timeout=None):
-        self.calls.append((kind, prompt, role, background, timeout))
+    async def delegate(self, kind, prompt, *, role=None, background=False,
+                       timeout=None, worktree=None):
+        self.calls.append((kind, prompt, role, background, timeout, worktree))
         return ToolResult(call_id="", name="agent", output="ok")
 
 
@@ -35,13 +36,21 @@ def test_agent_tool_name_and_schema(mgr):
     # state17 修正：角色名进 description + role 枚举，引导模型主动委派
     assert "architect" in t.description
     assert t.parameters["properties"]["role"]["enum"] == ["architect", "reviewer"]
+    assert "worktree" in t.parameters["properties"]
 
 
 async def test_defined_delegation(mgr):
     t = AgentTool(mgr)
     res = await t.execute(mode="defined", role="reviewer", prompt="审查 X")
     assert res.error is None
-    assert mgr.calls[0] == ("defined", "审查 X", "reviewer", False, None)
+    assert mgr.calls[0] == ("defined", "审查 X", "reviewer", False, None, None)
+
+
+async def test_worktree_param_passthrough(mgr):
+    t = AgentTool(mgr)
+    await t.execute(mode="defined", role="architect", prompt="改文件",
+                    worktree="auth-fix")
+    assert mgr.calls[0][5] == "auth-fix"
 
 
 async def test_fork_delegation_background_passthrough(mgr):
@@ -50,6 +59,7 @@ async def test_fork_delegation_background_passthrough(mgr):
     assert mgr.calls[0][0] == "fork"
     assert mgr.calls[0][3] is True
     assert mgr.calls[0][4] == 30.0
+    assert mgr.calls[0][5] is None
 
 
 async def test_missing_mode(mgr):

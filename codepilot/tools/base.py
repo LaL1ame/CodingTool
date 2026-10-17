@@ -45,6 +45,21 @@ class Tool(ABC):
         ...
 
 
+WORKTREE_ROOT_REL: tuple[str, ...] = (".codepilot", "worktrees")
+
+
+def is_worktree_path(path: Path, workspace_root: Path) -> bool:
+    """path 是否位于本仓库的 worktree 根内（搜索工具需跳过）。
+
+    用相对路径的词法判断，避免逐文件 resolve 的开销。
+    """
+    try:
+        rel = path.relative_to(workspace_root)
+    except ValueError:
+        return False
+    return tuple(rel.parts[:2]) == WORKTREE_ROOT_REL
+
+
 def validate_path(relative_path: str, workspace_root: Path) -> Path:
     """解析并校验路径：确保最终路径在工作目录子树内。
 

@@ -212,6 +212,58 @@ def build_registry() -> CommandRegistry:
     _register("bg", CommandKind.LOCAL, "把前台子 Agent 任务切后台", h_bg,
               usage="<task_id>", arg_hint="task_id")
 
+    # —— state18: Worktree 管理 ——
+    def h_worktree(ctx, params):
+        mgr = getattr(ctx, "worktree_manager", None)
+        if mgr is None:
+            ctx.show("Worktree 系统未启用")
+            return
+        args = params.split()
+        sub = args[0].lower() if args else "list"
+        if sub == "list":
+            try:
+                entries = mgr.list_status()
+            except Exception as e:  # noqa: BLE001 - 命令层不炸
+                ctx.show(f"Worktree 列表失败: {e}")
+                return
+            if not entries:
+                ctx.show("当前没有 worktree")
+                return
+            lines = ["[bold]Worktree[/bold] (name | branch | 占用 | 状态 | path)"]
+            for e in entries:
+                flags = []
+                if e.dirty:
+                    flags.append("dirty")
+                if e.ahead:
+                    flags.append(f"ahead {e.ahead}")
+                state = ",".join(flags) or "clean"
+                lock = f"#{e.locked_by}" if e.locked_by is not None else "-"
+                lines.append(
+                    f"  {e.name} | {e.branch} | {lock} | {state} | {e.path}")
+            ctx.show("\n".join(lines))
+            return
+        if sub == "rm":
+            if len(args) < 2:
+                ctx.show("用法: /worktree rm <name> [--force]")
+                return
+            name = args[1]
+            force = "--force" in args[2:]
+            try:
+                result = mgr.remove(name, force=force)
+            except Exception as e:  # noqa: BLE001
+                ctx.show(f"Worktree 删除失败: {e}")
+                return
+            if result.kept:
+                ctx.show(f"Worktree {name} 已保留: {result.reason}")
+            else:
+                suffix = "（分支保留）" if force else ""
+                ctx.show(f"Worktree {name} 已删除: {result.reason}{suffix}")
+            return
+        ctx.show("用法: /worktree list | /worktree rm <name> [--force]")
+    _register("worktree", CommandKind.LOCAL, "管理隔离工作目录(list/rm)",
+              h_worktree, usage="list | rm <name> [--force]",
+              arg_hint="list|rm")
+
     # state15: /review 命令已移交内置 review Skill（统一入口）。旧 PROMPT 载荷
     # 并入 codepilot/skills/data/review/SKILL.md 正文；REVIEW_PROMPT 保留仅向后兼容。
     # —— PROMPT: 预设提示词送 AI ——

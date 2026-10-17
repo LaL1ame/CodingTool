@@ -69,7 +69,8 @@ class CodePilotApp(App):
              skill_manager=None,
              hook_engine=None,
              hook_injector=None,
-             subagent_manager=None) -> None:
+             subagent_manager=None,
+             worktree_manager=None) -> None:
         super().__init__()
         self._agent = agent
         self._context_manager = context_manager
@@ -80,6 +81,8 @@ class CodePilotApp(App):
         self._hook_injector = hook_injector
         # state17: 子 Agent 委派中心（后台任务完成回灌 + /agents /bg 命令）。
         self._subagent_manager = subagent_manager
+        # state18: Worktree 管理器（/worktree list|rm 命令经 CommandContext 触达）。
+        self._worktree_manager = worktree_manager
         self._mode_state = ModeState(release=ReleasePolicy(release))
         if initial_modes:
             self._mode_state.restore(initial_modes)
@@ -830,6 +833,11 @@ class _CommandContextImpl(CommandContext):
     def subagent_manager(self):
         """state17: /agents /bg 命令经 getattr 触达委派中心（协议不加方法，N3）。"""
         return self._app._subagent_manager
+
+    @property
+    def worktree_manager(self):
+        """state18: /worktree 命令经 getattr 触达 Worktree 管理器。"""
+        return self._app._worktree_manager
 
     def show(self, message: str) -> None:
         self._app._chat_log().write("\n" + message)

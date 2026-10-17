@@ -24,9 +24,11 @@ from codepilot.subagents.runner import (
     run_fork_agent,
     run_role_agent,
 )
+from codepilot.worktree.naming import auto_name, validate_name
 
 if TYPE_CHECKING:
     from codepilot.tools.registry import ToolRegistry
+    from codepilot.worktree.manager import WorktreeManager
 
 logger = logging.getLogger("codepilot.subagents")
 
@@ -56,8 +58,10 @@ class SubAgentManager:
         parent_msgs: Callable[[], list[dict]] | None = None,
         notify: Callable[[str], None] | None = None,
         on_task_done: Callable[[SubAgentTask], None] | None = None,
+        worktree: "WorktreeManager | None" = None,
     ) -> None:
         self._known = known
+        self._worktree = worktree
         self._max_concurrent = max_concurrent
         self._max_depth = max_depth
         self._next_id = 1
@@ -88,6 +92,11 @@ class SubAgentManager:
     def known(self) -> dict[str, AgentRole]:
         return self._known
 
+    @property
+    def worktree(self) -> "WorktreeManager | None":
+        """state18: Worktree 管理器（未启用为 None）。"""
+        return self._worktree
+
     def tasks(self) -> list[SubAgentTask]:
         return list(self._tasks.values())
 
@@ -108,7 +117,9 @@ class SubAgentManager:
             return ""
         lines = ["## 可委派的子 Agent 角色（用 agent 工具，mode=defined，role=名字）"]
         for role in sorted(self._known.values(), key=lambda r: r.name):
-            lines.append(f"- {role.name} — {role.description}")
+            suffix = ("（隔离：可传 worktree=名字 指定目录）"
+                      if role.isolation == "worktree" else "")
+            lines.append(f"- {role.name} — {role.description}{suffix}")
         return "\n".join(lines)
 
     @staticmethod
@@ -133,8 +144,13 @@ class SubAgentManager:
         role: str | None = None,
         background: bool = False,
         timeout: float | None = None,
+        worktree: str | None = None,
     ) -> ToolResult:
-        """统一委派入口。defined 需 role；fork 忽略 role 且强制后台（F4）。"""
+        """统一委派入口。defined 需 role；fork 忽略 role 且强制后台（F4）。
+
+        worktree（state18）：仅 isolation: worktree 的 defined 角色可用；
+        省略时自动生成 <role>-<task_id>。
+        """
         try:
             role_obj = None
             if kind == "defined":
@@ -148,6 +164,25 @@ class SubAgentManager:
             if not prompt or not prompt.strip():
                 return ToolResult(call_id="", name="agent", error="委派需提供 prompt")
 
+            if worktree is not None:
+                if kind != "defined" or role_obj is None:
+                    return ToolResult(
+                        call_id="", name="agent",
+                        error="worktree 参数仅适用于 defined 模式的角色")
+                if role_obj.isolation != "worktree":
+                    return ToolResult(
+                        call_id="", name="agent",
+                        error=f"角色 {role_obj.name!r} 未声明 isolation: worktree，"
+                              "不能指定 worktree 参数")
+                if self._worktree is None:
+                    return ToolResult(call_id="", name="agent",
+                                      error="Worktree 系统未启用")
+                try:
+                    validate_name(worktree)
+                except Exception as e:
+                    return ToolResult(call_id="", name="agent",
+                                      error=f"worktree 名称非法: {e}")
+
             force_background = background or kind == "fork"
             if force_background and len(self._running) >= self._max_concurrent:
                 return ToolResult(
@@ -155,13 +190,25 @@ class SubAgentManager:
                     error=f"后台任务并发已满({self._max_concurrent})，请稍后再试")
 
             depth = _depth_ctx.get()
+            task_id = self._next_id
+            wt_name = ""
+            if role_obj is not None and role_obj.isolation == "worktree":
+                if self._worktree is None:
+                    return ToolResult(call_id="", name="agent",
+                                      error="Worktree 系统未启用")
+                try:
+                    wt_name = worktree or auto_name(role_obj.name, task_id)
+                except Exception as e:
+                    return ToolResult(call_id="", name="agent",
+                                      error=f"worktree 名称非法: {e}")
             task = SubAgentTask(
-                task_id=self._next_id,
+                task_id=task_id,
                 kind=kind,
                 role=role_obj.name if role_obj else None,
                 status="running",
                 prompt=prompt,
                 created_at=time.time(),
+                worktree=wt_name,
             )
             self._next_id += 1
             self._tasks[task.task_id] = task
@@ -227,13 +274,58 @@ class SubAgentManager:
             output=(f"已转后台，task_id={task.task_id}，状态=running。"
                     "请只回复一句「任务已转后台，完成后会通知」，不要展开分析。"))
 
-    async def _run_one(self, task: SubAgentTask, role_obj, depth: int):
-        """执行子 Agent 并登记结果/用量/状态。"""
-        token = _depth_ctx.set(depth + 1)
+    async def _enter_worktree(self, task: SubAgentTask, role_obj):
+        """进入隔离目录；失败转 SubAgentError（fail-closed）。"""
+        if self._worktree is None:
+            raise SubAgentError("Worktree 系统未启用")
         try:
+            return await asyncio.to_thread(
+                self._worktree.enter, task.worktree,
+                role=role_obj.name if role_obj else "",
+                task_id=task.task_id)
+        except Exception as e:
+            raise SubAgentError(f"Worktree 创建失败: {e}") from e
+
+    async def _leave_worktree(self, task: SubAgentTask, handle) -> None:
+        """退出隔离目录并把保留/清理结果写进任务摘要。"""
+        try:
+            result = await asyncio.shield(
+                asyncio.to_thread(self._worktree.leave, handle))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 - 清理失败不掩盖任务结果
+            logger.exception("subagent #%d worktree leave 失败", task.task_id)
+            self._append_worktree_note(task, f"[Worktree] 清理失败: {e}")
+            return
+        self._append_worktree_note(task, self._worktree_note(result))
+
+    @staticmethod
+    def _worktree_note(result) -> str:
+        if result.kept:
+            return (f"[Worktree] 保留 {result.path}"
+                    f"（分支 {result.branch}，{result.reason}）")
+        return f"[Worktree] 无变更，已清理（{result.reason}）"
+
+    @staticmethod
+    def _append_worktree_note(task: SubAgentTask, note: str) -> None:
+        if task.status == "failed" and task.error:
+            task.error = f"{task.error}\n{note}"
+        elif task.summary:
+            task.summary = f"{task.summary}\n\n{note}"
+        else:
+            task.summary = note
+
+    async def _run_one(self, task: SubAgentTask, role_obj, depth: int):
+        """执行子 Agent 并登记结果/用量/状态；隔离任务前后 enter/leave。"""
+        token = _depth_ctx.set(depth + 1)
+        handle = None
+        try:
+            if task.worktree:
+                handle = await self._enter_worktree(task, role_obj)
             if task.kind == "defined":
                 result = await run_role_agent(
-                    role_obj, task.prompt, depth=depth + 1, shared=self._shared)
+                    role_obj, task.prompt, depth=depth + 1,
+                    shared=self._shared, worktree=handle)
             else:
                 parent_names = frozenset(self._parent_visible())
                 parent_msgs = self._parent_msgs()
@@ -257,6 +349,8 @@ class SubAgentManager:
             task.error = f"内部异常: {e}"
             self._set_status(task, "failed")
         finally:
+            if handle is not None:
+                await self._leave_worktree(task, handle)
             _depth_ctx.reset(token)
             self._running.discard(task.task_id)
         return task.summary, task.usage

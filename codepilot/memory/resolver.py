@@ -58,7 +58,7 @@ def discover_instruction_roots(
         dirnames[:] = [
             d for d in dirnames
             if d not in (".git", "node_modules", "__pycache__",
-                         ".tox", ".venv", "venv")
+                         ".tox", ".venv", "venv", ".codepilot")
         ]
         p = Path(dirpath)
         if p.name == INSTRUCTION_ROOT_NAME:

@@ -29,8 +29,12 @@ ROLE_ROOT_NAME = ".agents"
 # 权限模式合法值（与 permissions/mode.py 对齐的字符串形态）
 _PERMISSIONS = {"manual", "auto", "strict", "permissive"}
 
+# 隔离模式合法值（state18；当前仅 worktree）
+_ISOLATIONS = {"worktree"}
+
 # 剪枝目录（镜像 skills/resolver.py）
-_SKIP = {".git", "node_modules", "__pycache__", ".tox", ".venv", "venv"}
+_SKIP = {".git", "node_modules", "__pycache__", ".tox", ".venv", "venv",
+         ".codepilot"}
 
 
 def _split_frontmatter(raw: str) -> tuple[str | None, str]:
@@ -98,6 +102,13 @@ def parse_role_text(raw: str, *, path: Path | None = None) -> AgentRole:
             raise RoleError(
                 f"非法 permission={permission!r}（应为 {'/'.join(sorted(_PERMISSIONS))}）: {path}")
 
+    isolation = meta.get("isolation")
+    if isolation is not None:
+        isolation = str(isolation).strip().lower()
+        if isolation not in _ISOLATIONS:
+            raise RoleError(
+                f"非法 isolation={isolation!r}（应为 {'/'.join(sorted(_ISOLATIONS))}）: {path}")
+
     model = meta.get("model")
     if model is not None and not isinstance(model, str):
         raise RoleError(f"model 应为字符串: {path}")
@@ -119,6 +130,7 @@ def parse_role_text(raw: str, *, path: Path | None = None) -> AgentRole:
         model=model,
         max_rounds=max_rounds,
         permission=permission,
+        isolation=isolation,
         can_delegate=bool(meta.get("can_delegate", False)),
         path=path,
     )

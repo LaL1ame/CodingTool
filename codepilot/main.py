@@ -25,6 +25,8 @@ from codepilot.mcp import McpManager
 from codepilot.tools import ToolRegistry, ReadTool, WriteTool, EditTool, GlobTool, GrepTool, RunTool
 from codepilot import skills as _skills
 from codepilot.ui.app import CodePilotApp
+from codepilot.worktree import WorktreeManager, load_settings
+from codepilot.worktree.settings import WorktreeSettingsError
 
 
 def find_config() -> Path:
@@ -195,6 +197,14 @@ def main() -> None:
     hook_injector = HookInjector()
     hook_engine = HookEngine(hook_rules, hook_injector)
 
+    # —— Worktree 系统(state18):项目配置 + 管理中心（隔离任务用） ——
+    try:
+        worktree_settings = load_settings(workspace)
+    except WorktreeSettingsError as e:
+        print(f"Worktree configuration error: {e}", file=sys.stderr)
+        sys.exit(1)
+    worktree_manager = WorktreeManager(workspace, worktree_settings)
+
     # —— SubAgent 系统(state17):角色四级加载 + 委派中心 + 常驻 agent 工具 ——
     # 先于 Agent 构造：agent 的角色名册注入器与 registry 工具注册都依赖它。
     from codepilot.subagents import AgentTool, RoleError, SubAgentManager, load_all
@@ -211,6 +221,7 @@ def main() -> None:
         ctx_config=ctx_config, shared_hooks=hook_engine,
         parent_permission=permission,
         max_rounds=agent_config.max_rounds,
+        worktree=worktree_manager,
     )
     registry.register(AgentTool(subagent_manager))  # 系统级常驻工具
     # 父上下文/工具集取数在 App.on_mount 接线（ChatManager 尚未创建）。
@@ -263,7 +274,8 @@ def main() -> None:
                        skill_manager=skill_manager,
                        hook_engine=hook_engine,
                        hook_injector=hook_injector,
-                       subagent_manager=subagent_manager)
+                       subagent_manager=subagent_manager,
+                       worktree_manager=worktree_manager)
 
     # state16: compact 事件发射接线（ContextManager 不 import hooks，回调由 main 接）
     context_manager.on_compact = lambda: hook_engine.fire("compact", {})
@@ -285,7 +297,17 @@ def main() -> None:
             connect_task = asyncio.create_task(mcp_manager.connect_all(mcp_specs))
         # 权限人机回路：App 的 ask_permission 作为 PermissionManager 的 human_callback
         permission.human_callback = app.ask_permission
-        await app.run_async()
+        # state18: 过期 worktree 清理（立即一次 + 周期）；退出时取消。
+        cleanup_task = asyncio.create_task(
+            worktree_manager.run_periodic_cleanup())
+        try:
+            await app.run_async()
+        finally:
+            cleanup_task.cancel()
+            try:
+                await cleanup_task
+            except (asyncio.CancelledError, Exception):
+                pass
         if connect_task is not None and not connect_task.done():
             connect_task.cancel()
             try:

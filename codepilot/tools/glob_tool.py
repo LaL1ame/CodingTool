@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from codepilot.protocols import ToolResult
-from codepilot.tools.base import Tool
+from codepilot.tools.base import Tool, is_worktree_path
 
 GLOB_LIMIT = 500
 
@@ -35,6 +35,8 @@ class GlobTool(Tool):
             matches = []
             for p in self.workspace.rglob(pattern):
                 if ".git" in p.parts:
+                    continue
+                if is_worktree_path(p, self.workspace):
                     continue
                 if p.is_file():
                     matches.append(p)

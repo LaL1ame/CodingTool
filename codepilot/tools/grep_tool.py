@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from codepilot.protocols import ToolResult
-from codepilot.tools.base import Tool
+from codepilot.tools.base import Tool, is_worktree_path
 
 GREP_LIMIT = 250
 
@@ -48,6 +48,8 @@ class GrepTool(Tool):
         try:
             for p in search_root.rglob("*"):
                 if ".git" in p.parts:
+                    continue
+                if is_worktree_path(p, self.workspace):
                     continue
                 if not p.is_file():
                     continue

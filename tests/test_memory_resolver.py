@@ -110,6 +110,15 @@ def test_load_instructions_concats_by_root(tmp_path: Path):
     assert text.index("ROOT") < text.index("SUB")
 
 
+def test_discover_ignores_codepilot_worktrees(tmp_path: Path):
+    ws = tmp_path / "ws"
+    _write(ws, ".codepilot/worktrees/x/.rules/hidden.md", "H")
+    _write(ws, ".rules/visible.md", "V")
+    roots = discover_instruction_roots(ws, user_root=tmp_path / "nouser")
+    assert (ws / ".rules").resolve() in [r.resolve() for r in roots]
+    assert all(".codepilot" not in r.parts for r in roots)
+
+
 def test_load_instructions_empty_and_bad_file(tmp_path: Path):
     ws = tmp_path / "ws"
     ws.mkdir()

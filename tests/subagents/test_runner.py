@@ -199,6 +199,62 @@ async def test_fork_inherits_parent_msgs_deepcopy():
     assert "请基于当前上下文执行" in joined
 
 
+class _SystemRecordingProvider(_MockProvider):
+    """记录 system 与每轮 messages，供隔离路径断言。"""
+
+    def __init__(self, rounds):
+        super().__init__(rounds=rounds)
+        self.systems = []
+        self.seen = []
+
+    async def stream(self, messages, tools=None, system=None):
+        import json
+        self.systems.append(system)
+        self.seen.append(json.loads(json.dumps(messages, default=str)))
+        async for d in super().stream(messages, tools=tools, system=system):
+            yield d
+
+
+async def test_run_role_agent_uses_worktree_runtime(tmp_path):
+    import json
+
+    from codepilot.protocols import ToolCall
+    from codepilot.worktree.model import WorktreeHandle
+
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    (wt / "local.txt").write_text("WT-CONTENT", encoding="utf-8")
+    handle = WorktreeHandle(
+        name="x", path=wt, branch="codepilot/x", base="abc", created_at=1.0)
+    provider = _SystemRecordingProvider([
+        [Delta(tool_calls=[ToolCall(
+            id="c1", name="read", arguments={"file_path": "local.txt"})])],
+        [Delta(text="done")],
+    ])
+    shared = _shared(provider=provider)
+    role = AgentRole(
+        name="r", description="d", body="ROLE BODY",
+        tools=frozenset({"read"}), permission="auto",
+        isolation="worktree")
+
+    before = Path.cwd()
+    res = await run_role_agent(
+        role, "x", depth=1, shared=shared, worktree=handle)
+
+    assert res.summary == "done"
+    assert Path.cwd() == before  # 无 chdir
+    # 系统提示含隔离路径与角色正文
+    joined_system = "\n".join(
+        b for s in provider.systems for b in (*s.stable, *s.volatile))
+    assert str(wt) in joined_system
+    assert "codepilot/x" in joined_system
+    assert "ROLE BODY" in joined_system
+    # read 工具从 worktree 读取，而不是主工作区
+    assert any(
+        "WT-CONTENT" in json.dumps(m, ensure_ascii=False)
+        for m in provider.seen[-1])
+
+
 async def test_runner_constructs_independent_context_manager():
     """子 Agent 有独立 ContextManager（不 attach_chat，隔离计数）。"""
     shared = _shared()

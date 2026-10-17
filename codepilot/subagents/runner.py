@@ -17,8 +17,12 @@ from typing import TYPE_CHECKING
 from codepilot.agent import Agent
 from codepilot.context.manager import ContextManager
 from codepilot.permissions import PermissionManager
-from codepilot.permissions.mode import PermissionMode
 from codepilot.providers import BaseProvider
+from codepilot.subagents.isolation import (
+    build_isolated_runtime,
+    role_permission,
+    role_provider,
+)
 from codepilot.subagents.transcript import TranscriptEntry, flatten
 
 if TYPE_CHECKING:
@@ -27,16 +31,9 @@ if TYPE_CHECKING:
     from codepilot.protocols import Usage
     from codepilot.subagents.model import AgentRole
     from codepilot.tools.registry import ToolRegistry
+    from codepilot.worktree.model import WorktreeHandle
 
 logger = logging.getLogger("codepilot.subagents")
-
-# 角色 permission 字符串 → PermissionMode（与 modes.RELEASE_TO_PERMISSION 对齐）
-_ROLE_PERMISSION_MODE = {
-    "manual": PermissionMode.DEFAULT,
-    "auto": PermissionMode.PERMISSIVE,
-    "strict": PermissionMode.STRICT,
-    "permissive": PermissionMode.PERMISSIVE,
-}
 
 
 class SubAgentError(Exception):
@@ -125,29 +122,6 @@ def build_fork_tool_filter(
     return _filter
 
 
-def _role_provider(shared: SharedContext, model: str | None) -> BaseProvider:
-    """角色 model 覆盖时派生新 provider（继承 base_url/api_key，对齐 isolated skill）。"""
-    if model is None or model == shared.provider.config.model:
-        return shared.provider
-    from dataclasses import replace as _replace
-
-    return BaseProvider.create(_replace(shared.provider.config, model=model))
-
-
-def _role_permission(shared: SharedContext, role: "AgentRole") -> PermissionManager:
-    """独立权限实例：模式取角色指定或继承主；human_callback 透传主 App（D4/D5）。"""
-    mode = (_ROLE_PERMISSION_MODE.get(role.permission or "")
-            if role.permission
-            else (shared.parent_permission.mode if shared.parent_permission else None))
-    pm = PermissionManager(
-        workspace=shared.workspace,
-        mode=mode if mode is not None else PermissionMode.DEFAULT,
-    )
-    if shared.parent_permission is not None:
-        pm.human_callback = shared.parent_permission.human_callback
-    return pm
-
-
 def _fork_permission(shared: SharedContext) -> PermissionManager | None:
     """Fork 独立权限实例（F5）：无角色，模式继承主当前；无主权限则 None（不判定）。"""
     if shared.parent_permission is None:
@@ -195,21 +169,42 @@ async def _collect(sub: Agent, msgs: list[dict], *, start: int = 0) -> RunResult
 
 async def run_role_agent(
     role: "AgentRole", prompt: str, *, depth: int, shared: SharedContext,
+    worktree: "WorktreeHandle | None" = None,
 ) -> RunResult:
-    """定义式（F3）：空白对话 + 固定角色启动，跑到底返回 RunResult。"""
+    """定义式（F3）：空白对话 + 固定角色启动，跑到底返回 RunResult。
+
+    传入 worktree 句柄时使用隔离运行时（独立工具/路径/记忆）；不传时行为与
+    state17 完全一致。
+    """
     trigger = f"请以角色「{role.name}」执行：{prompt}"
     msgs = [{"role": "user", "content": trigger}]
-    provider = _role_provider(shared, role.model)
-    permission = _role_permission(shared, role)
-    ctx_mgr = ContextManager(provider=provider, config=shared.ctx_config)
+    if worktree is not None:
+        runtime = build_isolated_runtime(shared, role, worktree)
+        provider = runtime.provider
+        registry = runtime.registry
+        workspace = runtime.workspace
+        env = runtime.env
+        permission = runtime.permission
+        ctx_mgr = runtime.context_manager
+        skill_injector = runtime.skill_injector
+    else:
+        provider = role_provider(shared, role.model)
+        registry = shared.registry
+        workspace = shared.workspace
+        env = shared.env
+        permission = role_permission(shared, role, workspace=shared.workspace)
+        ctx_mgr = ContextManager(provider=provider, config=shared.ctx_config)
+
+        def skill_injector() -> list[str]:
+            return [role.body]
     sub = Agent(
         provider=provider,
-        registry=shared.registry,
-        workspace=shared.workspace,
-        env=shared.env,
+        registry=registry,
+        workspace=workspace,
+        env=env,
         permission=permission,
         context_manager=ctx_mgr,
-        skill_injector=lambda: [role.body],
+        skill_injector=skill_injector,
         tool_filter=build_tool_filter(
             role=role, depth=depth, max_depth=shared.max_depth,
             background=False, inherit_plan=shared.inherit_plan),

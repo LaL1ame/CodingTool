@@ -17,6 +17,7 @@ from codepilot.subagents.runner import RunResult, SubAgentError
 from codepilot.subagents.transcript import TranscriptEntry
 from codepilot.tools.base import Tool
 from codepilot.tools.registry import ToolRegistry
+from codepilot.worktree.model import ExitResult, WorktreeHandle
 
 
 class _MockProvider(BaseProvider):
@@ -63,6 +64,28 @@ def _mgr(**kw) -> SubAgentManager:
     return SubAgentManager(**base)
 
 
+class _FakeWorktree:
+    def __init__(self, *, keep=False, enter_error=None):
+        self.keep = keep
+        self.enter_error = enter_error
+        self.entered: list[tuple[str, str, int]] = []
+        self.left: list[str] = []
+
+    def enter(self, name, *, role, task_id):
+        if self.enter_error is not None:
+            raise self.enter_error
+        self.entered.append((name, role, task_id))
+        path = Path("wt") / name
+        return WorktreeHandle(
+            name=name, path=path, branch=f"codepilot/{name}",
+            base="b", created_at=1.0)
+
+    def leave(self, handle):
+        self.left.append(handle.name)
+        reason = "kept/dirty" if self.keep else "removed/clean"
+        return ExitResult(self.keep, reason, handle.path, handle.branch)
+
+
 def _result(summary="summary", entries=None):
     return RunResult(
         summary, None,
@@ -73,7 +96,7 @@ def _patch_runner(monkeypatch, result=None, error=None):
     """桩掉 runner 两个入口，让 manager 聚焦调度逻辑。"""
     result = _result() if result is None else result
 
-    async def _role(role, prompt, *, depth, shared):
+    async def _role(role, prompt, *, depth, shared, worktree=None):
         if error:
             raise error
         return result
@@ -144,7 +167,7 @@ async def test_delegate_fork_forced_background(monkeypatch):
 
 async def test_concurrency_limit(monkeypatch):
     """后台并发上限：达到后新委派被拒（F10）。"""
-    async def _slow(role, prompt, *, depth, shared):
+    async def _slow(role, prompt, *, depth, shared, worktree=None):
         await asyncio.sleep(0.5)
         return _result("s")
     monkeypatch.setattr(manager_mod, "run_role_agent", _slow)
@@ -190,7 +213,7 @@ async def test_foreground_failure_returns_error(monkeypatch):
 
 
 async def test_cancel_background(monkeypatch):
-    async def _slow(role, prompt, *, depth, shared):
+    async def _slow(role, prompt, *, depth, shared, worktree=None):
         await asyncio.sleep(10)
         return _result("s")
     monkeypatch.setattr(manager_mod, "run_role_agent", _slow)
@@ -204,7 +227,7 @@ async def test_cancel_background(monkeypatch):
 
 async def test_foreground_timeout_to_background(monkeypatch):
     """前台超时 → 转后台并返回占位（D11）。"""
-    async def _slow(role, prompt, *, depth, shared):
+    async def _slow(role, prompt, *, depth, shared, worktree=None):
         await asyncio.sleep(1)
         return _result("slow result")
     monkeypatch.setattr(manager_mod, "run_role_agent", _slow)
@@ -232,7 +255,7 @@ async def test_failure_stores_partial_entries(monkeypatch):
 
 async def test_counts_running_and_done(monkeypatch):
     """提示行概要：(运行中, 已完成)（F11）。"""
-    async def _slow(role, prompt, *, depth, shared):
+    async def _slow(role, prompt, *, depth, shared, worktree=None):
         await asyncio.sleep(0.2)
         return _result("s")
 
@@ -247,7 +270,7 @@ async def test_counts_running_and_done(monkeypatch):
 
 async def test_foreground_manual_background(monkeypatch):
     """/bg / Ctrl+B 手动切：前台等待中任务转后台继续跑（D12）。"""
-    async def _slow(role, prompt, *, depth, shared):
+    async def _slow(role, prompt, *, depth, shared, worktree=None):
         await asyncio.sleep(0.5)
         return _result("manual bg result")
     monkeypatch.setattr(manager_mod, "run_role_agent", _slow)
@@ -265,3 +288,99 @@ async def test_foreground_manual_background(monkeypatch):
     await asyncio.sleep(0.6)
     assert mgr.tasks()[0].status == "done"
     assert mgr.tasks()[0].summary == "manual bg result"
+
+
+# —— state18: worktree 隔离 ——
+
+def _isolated_role(**kw):
+    return AgentRole(
+        name="r", description="d", body="b", isolation="worktree", **kw)
+
+
+def test_role_list_marks_isolation():
+    mgr = _mgr(known={"r": _isolated_role()})
+    assert "隔离" in mgr.role_list_block()
+
+
+async def test_worktree_param_rejected_for_non_isolated(monkeypatch):
+    _patch_runner(monkeypatch)
+    wt = _FakeWorktree()
+    mgr = _mgr(worktree=wt)
+    res = await mgr.delegate(
+        "defined", "x", role="r", worktree="auth-fix")
+    assert "未声明" in res.error
+    assert wt.entered == []
+
+
+async def test_worktree_param_rejected_for_fork(monkeypatch):
+    _patch_runner(monkeypatch)
+    mgr = _mgr(worktree=_FakeWorktree())
+    res = await mgr.delegate("fork", "x", worktree="auth-fix")
+    assert "仅适用于 defined" in res.error
+
+
+async def test_isolated_role_auto_name_enter_leave(monkeypatch):
+    _patch_runner(monkeypatch)
+    wt = _FakeWorktree()
+    mgr = _mgr(known={"r": _isolated_role()}, worktree=wt)
+    res = await mgr.delegate("defined", "x", role="r")
+    assert res.error is None
+    assert wt.entered == [("r-1", "r", 1)]
+    assert wt.left == ["r-1"]
+    assert mgr.tasks()[0].worktree == "r-1"
+    assert "[Worktree]" in mgr.tasks()[0].summary
+
+
+async def test_isolated_role_keeps_and_reports(monkeypatch):
+    _patch_runner(monkeypatch)
+    wt = _FakeWorktree(keep=True)
+    mgr = _mgr(known={"r": _isolated_role()}, worktree=wt)
+    await mgr.delegate(
+        "defined", "x", role="r", worktree="auth-fix")
+    summary = mgr.tasks()[0].summary
+    assert "保留" in summary
+    assert "codepilot/auth-fix" in summary
+
+
+async def test_explicit_worktree_name(monkeypatch):
+    _patch_runner(monkeypatch)
+    wt = _FakeWorktree()
+    mgr = _mgr(known={"r": _isolated_role()}, worktree=wt)
+    await mgr.delegate(
+        "defined", "x", role="r", worktree="feature/login")
+    assert wt.entered[0][0] == "feature/login"
+
+
+async def test_invalid_worktree_name_rejected(monkeypatch):
+    _patch_runner(monkeypatch)
+    mgr = _mgr(known={"r": _isolated_role()}, worktree=_FakeWorktree())
+    res = await mgr.delegate(
+        "defined", "x", role="r", worktree="../x")
+    assert "名称非法" in res.error
+    assert mgr.tasks() == []
+
+
+async def test_enter_failure_marks_failed(monkeypatch):
+    _patch_runner(monkeypatch)
+    wt = _FakeWorktree(enter_error=RuntimeError("boom"))
+    mgr = _mgr(known={"r": _isolated_role()}, worktree=wt)
+    res = await mgr.delegate("defined", "x", role="r")
+    assert "Worktree 创建失败" in res.error
+    assert mgr.tasks()[0].status == "failed"
+
+
+async def test_runner_failure_still_leaves_and_reports(monkeypatch):
+    _patch_runner(monkeypatch, error=SubAgentError("模型炸了"))
+    wt = _FakeWorktree(keep=True)
+    mgr = _mgr(known={"r": _isolated_role()}, worktree=wt)
+    res = await mgr.delegate("defined", "x", role="r")
+    assert res.error
+    assert wt.left == ["r-1"]
+    assert "[Worktree]" in mgr.tasks()[0].error
+
+
+async def test_worktree_disabled_rejected(monkeypatch):
+    _patch_runner(monkeypatch)
+    mgr = _mgr(known={"r": _isolated_role()})
+    res = await mgr.delegate("defined", "x", role="r")
+    assert "Worktree 系统未启用" in res.error

@@ -162,3 +162,33 @@ def test_load_all_no_check_tools(tmp_path):
     _role_file(d, "r", extra="tools: [read, not_a_tool]")
     known = load_all(ws)
     assert known["r"].tools == frozenset({"read", "not_a_tool"})
+
+
+def test_isolation_default_none(tmp_path):
+    p = _role_file(tmp_path, "r")
+    assert parse_role_file(p).isolation is None
+
+
+def test_isolation_worktree_normalized(tmp_path):
+    p = _role_file(tmp_path, "r", extra="isolation: '  WORKTREE  '")
+    assert parse_role_file(p).isolation == "worktree"
+
+
+def test_isolation_invalid_raises(tmp_path):
+    p = _role_file(tmp_path, "r", extra="isolation: container")
+    with pytest.raises(RoleError) as ei:
+        parse_role_file(p)
+    assert "isolation" in str(ei.value)
+
+
+def test_discover_ignores_codepilot_worktrees(tmp_path):
+    ws = tmp_path / "ws"
+    visible = ws / ".agents"
+    visible.mkdir(parents=True)
+    hidden = ws / ".codepilot" / "worktrees" / "x" / ".agents"
+    hidden.mkdir(parents=True)
+    _role_file(visible, "visible")
+    _role_file(hidden, "hidden")
+    known = load_all(ws)
+    assert "visible" in known
+    assert "hidden" not in known

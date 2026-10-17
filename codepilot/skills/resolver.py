@@ -21,7 +21,8 @@ SKILL_ROOT_NAME = ".skills"
 ENTRY_FILE = "SKILL.md"
 
 # 剪枝目录（镜像 memory/resolver.py）
-_SKIP = {".git", "node_modules", "__pycache__", ".tox", ".venv", "venv"}
+_SKIP = {".git", "node_modules", "__pycache__", ".tox", ".venv", "venv",
+         ".codepilot"}
 
 
 def _reldepth(root: Path, base: Path) -> int:

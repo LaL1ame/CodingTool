@@ -1,4 +1,5 @@
 """T6 单测 —— 内置命令注册完整性(F7)。"""
+from pathlib import Path
 from types import SimpleNamespace
 
 from codepilot.commands.builtins import build_registry
@@ -12,7 +13,7 @@ def test_builtin_full_set_and_no_conflicts():
     expected = {"help", "exit", "plan", "do", "mode", "auto", "manual", "strict",
                 "edits", "compact", "continue", "memory", "forget", "clear",
                 "session", "permission", "status", "reload",
-                "agents", "bg"}  # state15: /review 移交内置 review Skill(非内置命令)；state17: +agents/bg
+                "agents", "bg", "worktree"}  # state17: +agents/bg; state18: +worktree
     assert names == expected
 
 
@@ -96,3 +97,71 @@ def test_bg_not_enabled_degrades():
     ctx = _Ctx()  # 无 manager → 安全降级
     build_registry().resolve("bg").handler(ctx, "1")
     assert "未启用" in ctx.shown[-1]
+
+
+# —— state18: /worktree ——
+
+class _WTCtx(_Ctx):
+    def __init__(self, manager=None):
+        super().__init__()
+        if manager is not None:
+            self.worktree_manager = manager
+
+
+class _WTMgr:
+    def __init__(self):
+        self.removed = []
+
+    def list_status(self):
+        return [SimpleNamespace(
+            name="auth-fix", branch="codepilot/auth-fix", locked_by=None,
+            dirty=True, ahead=2, path=Path("wt/auth-fix"))]
+
+    def remove(self, name, force=False):
+        self.removed.append((name, force))
+        return SimpleNamespace(
+            kept=False, reason="removed/clean",
+            path=Path("wt") / name, branch=f"codepilot/{name}")
+
+
+def test_worktree_list_output():
+    ctx = _WTCtx(_WTMgr())
+    build_registry().resolve("worktree").handler(ctx, "list")
+    out = ctx.shown[-1]
+    assert "auth-fix" in out
+    assert "codepilot/auth-fix" in out
+    assert "dirty" in out and "ahead 2" in out
+
+
+def test_worktree_rm_and_force():
+    mgr = _WTMgr()
+    ctx = _WTCtx(mgr)
+    handler = build_registry().resolve("worktree").handler
+    handler(ctx, "rm auth-fix")
+    handler(ctx, "rm auth-fix --force")
+    assert mgr.removed == [("auth-fix", False), ("auth-fix", True)]
+    assert "已删除" in ctx.shown[-1]
+    assert "分支保留" in ctx.shown[-1]
+
+
+def test_worktree_rm_error_reported():
+    class _Bad(_WTMgr):
+        def remove(self, name, force=False):
+            raise RuntimeError("有未提交改动")
+
+    ctx = _WTCtx(_Bad())
+    build_registry().resolve("worktree").handler(ctx, "rm x")
+    assert "删除失败" in ctx.shown[-1]
+    assert "有未提交改动" in ctx.shown[-1]
+
+
+def test_worktree_usage_and_disabled():
+    ctx = _WTCtx(_WTMgr())
+    handler = build_registry().resolve("worktree").handler
+    handler(ctx, "rm")
+    assert "用法" in ctx.shown[-1]
+    handler(ctx, "bogus")
+    assert "用法" in ctx.shown[-1]
+    disabled = _WTCtx()
+    handler(disabled, "list")
+    assert "未启用" in disabled.shown[-1]

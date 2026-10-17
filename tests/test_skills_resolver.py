@@ -106,3 +106,14 @@ def test_discover_orders_builtin_user_project(tmp_path):
     assert dirs[0] == builtin
     assert dirs[1] == user
     assert dirs[2] == (ws / ".skills")
+
+
+def test_discover_ignores_codepilot_worktrees(tmp_path):
+    builtin = tmp_path / "builtin"
+    builtin.mkdir()
+    ws = tmp_path / "ws"
+    _md(ws / ".codepilot/worktrees/x/.skills/hidden.md", "hidden", "h")
+    _md(ws / ".skills/visible.md", "visible", "v")
+    known = load_all(ws, builtin_root=builtin)
+    assert "visible" in known
+    assert "hidden" not in known
