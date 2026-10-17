@@ -193,7 +193,7 @@ async def test_foreground_timeout_to_background(monkeypatch):
 
 
 async def test_foreground_manual_background(monkeypatch):
-    """/bg 手动切：前台等待中任务转后台继续跑（D12）。"""
+    """/bg / Ctrl+B 手动切：前台等待中任务转后台继续跑（D12）。"""
     async def _slow(role, prompt, *, depth, shared):
         await asyncio.sleep(0.5)
         return ("manual bg result", None)
@@ -201,7 +201,8 @@ async def test_foreground_manual_background(monkeypatch):
     mgr = _mgr()
     task_fut = asyncio.ensure_future(mgr.delegate("defined", "x", role="r"))
     await asyncio.sleep(0.05)  # 让 delegate 进入前台等待
-    tid = next(iter(mgr._foreground))
+    assert len(mgr.foreground_task_ids()) == 1
+    tid = mgr.foreground_task_ids()[0]
     assert mgr.background_now(tid) is True
     res = await task_fut
     assert "手动切" in res.output

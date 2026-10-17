@@ -15,7 +15,7 @@
 - **架构**：新包 `codepilot/subagents/`（model/loader/runner/manager/tool + data 内置样板）。子 Agent **复用现有 Agent 类**（N6）：共享 provider/registry/hooks/fs，独立 permission/context_manager/msgs。角色 = Markdown+YAML frontmatter，四级 `[插件<内置<用户<项目]` 同名覆盖。多层防线落在 `Agent._build_tools` 新增 `tool_filter` 注入点：白名单∪系统 → 黑名单 → agent 禁（can_delegate∧depth<max_depth）→ 后台/plan 只读。深度用 contextvar；后台并发上限 4。
 - **关键裁决**：独立体系 Skill 不动；结果回灌模型+系统行；执行中仅状态行+完成摘要；前台超时转后台；`/bg` 手动切；后台完成摘要流式中先入队、收尾回灌（防插进 tool_call/tool_result 破坏协议）；Fork 强制后台+继承父工具集快照。
 - 文件：`codepilot/subagents/*`、`agent.py`（tool_filter + visible_tool_names）、`ui/app.py`（回灌接线 + pending 队列）、`main.py`（装配 + AgentTool 注册）、`commands/builtins.py`（/agents /bg）、`pyproject.toml`、7 个测试文件。
-- 命令：`/agents` 任务列表、`/bg <task_id>` 手动切后台。
+- 命令/快捷键：`/agents` 任务列表、`/bg <task_id>` 手动切后台；前台委派时输入框禁用，**Ctrl+B** 是 TUI 内切后台的可达入口。
 - 遗留 / 待确认：真机验收（5 场景）；`can_delegate` 默认 max_depth=1 下不生效，需配 2 才启用多级委派；插件层仅预留接口。
 - 新上手：读本文 + `docs/state17-subagent/{spec,plan,task,checklist}.md` 即可恢复。
 

@@ -252,12 +252,16 @@ class SubAgentManager:
         return True
 
     def background_now(self, task_id: int) -> bool:
-        """手动切后台（/bg）：前台等待中的任务解除 await、转后台继续跑（D12）。"""
+        """手动切后台（/bg、快捷键）：前台等待中的任务解除 await、转后台继续跑（D12）。"""
         entry = self._foreground.get(task_id)
         if entry is None:
             return False
         entry[1].set()  # 触发 marker → _run_foreground 转后台
         return True
+
+    def foreground_task_ids(self) -> list[int]:
+        """当前前台等待中的任务 id（TUI 快捷键切后台用；前台运行中输入框禁用）。"""
+        return list(self._foreground.keys())
 
     # —— 接线（main/app 在 App 就绪后注入，避免构造期循环依赖）——
     def set_on_task_done(self, cb: Callable[[SubAgentTask], None] | None) -> None:

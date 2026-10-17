@@ -50,7 +50,9 @@ VERSION = "0.2.0"
 
 class CodePilotApp(App):
     BINDINGS = [("ctrl+c", "quit", "退出"), ("escape", "cancel_loop", "取消"),
-                ("f2", "cycle_release", "切换模式")]  # state11:Enter/Ctrl+Enter 由 PromptInput 内部接管
+                ("f2", "cycle_release", "切换模式"),
+                # state17: 前台子 Agent 运行时输入框禁用，Ctrl+B 直达「切后台」。
+                ("ctrl+b", "background_subagent", "子任务切后台")]  # state11:Enter/Ctrl+Enter 由 PromptInput 内部接管
 
     CSS_PATH = "theme.tcss"
 
@@ -242,6 +244,22 @@ class CodePilotApp(App):
     def action_cancel_loop(self) -> None:
         if self._streaming:
             self._agent.cancel()
+
+    def action_background_subagent(self) -> None:
+        """state17: 把当前前台等待中的子 Agent 任务切后台（Ctrl+B）。
+
+        前台委派时输入框禁用，/bg 无法输入——快捷键是手动切后台的唯一可达入口。
+        """
+        mgr = self._subagent_manager
+        if mgr is None:
+            return
+        ids = mgr.foreground_task_ids()
+        if not ids:
+            self._chat_log().write("\n[dim]当前没有前台运行中的子任务[/dim]")
+            return
+        if mgr.background_now(ids[0]):
+            self._chat_log().write(
+                f"\n[dim]── 子任务 #{ids[0]} 已切到后台继续运行[/dim]")
 
     def action_cycle_release(self) -> None:
         """F2:Claude Code 式放行模式循环(MANUAL→AUTO→STRICT,同步 AE)。"""

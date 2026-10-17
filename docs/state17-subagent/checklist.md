@@ -31,7 +31,7 @@
 - [ ] 场景 1（定义式委派）—— **预期**：项目 `.agents/architect.md` 存在时，主对话让模型「用 architect 角色审查这段设计」，模型调用 `agent` 工具（mode=defined, role=architect），子 Agent 以角色身份独立跑到底，前台调用完成后摘要作为工具结果回灌，主 Agent 后续轮可引用结论。
 - [ ] 场景 2（Fork 式继承）—— **预期**：主对话跑了一段较长上下文后，让模型「fork 当前上下文，起草一份总结」，模型调用 `agent` 工具（mode=fork），任务**立即显示已转后台**（不阻塞主循环），完成后系统行 + 摘要进主对话；provider 支持 cache 时日志可见 cache_read>0。
 - [ ] 场景 3（多层防线）—— **预期**：`can_delegate: false`（默认）的角色子 Agent **看不到 `agent` 工具**（无法再委派）；`architect`（can_delegate: true）在多级时受 max_depth 上限约束（配 1 时子 Agent 内仍不可见 agent）；后台任务只读（side_effect 工具被滤）。
-- [ ] 场景 4（后台管理）—— **预期**：`/agents` 列出全部后台任务（id/角色/状态/用量）；前台跑 `agent` 任务时 `/bg <id>` 切后台后主对话不阻塞、子 Agent 继续跑完；并发超过 4 时新委派回灌「并发已满」。
+- [ ] 场景 4（后台管理）—— **预期**：`/agents` 列出全部后台任务（id/角色/状态/用量）；前台跑 `agent` 任务时按 **Ctrl+B**（输入框禁用，`/bg` 不可输入）切后台后主对话不阻塞、子 Agent 继续跑完；空闲时 `/bg <id>` 仍可用；并发超过 4 时新委派回灌「并发已满」。
 - [ ] 场景 5（故障隔离）—— **预期**：让子 Agent 执行注定失败的任务（如未知角色），主 Agent 继续跑不崩溃，日志与系统行有明确 `error` 记录；取消后台任务后 status 变 cancelled。
 
 ## 验收口径
