@@ -21,6 +21,10 @@
 - [x] 命令接线：`/agents` 列出任务、`/bg <id>` 切后台，manager 未启用时安全降级（验证：`tests/test_commands_builtins.py`）。
 - [x] UI 回灌接线：后台完成写系统行 + 摘要追加主对话 `_msgs`（不触发新一轮）；流式中先入队、收尾回灌（验证：`tests/test_subagent_repl.py`）。
 - [x] main 装配：load_all(check_tools) + 注册 AgentTool + app 传 subagent_manager（验证：`python -c "import codepilot.main"`）。
+- [ ] 轨迹扁平化（F11 增量）：Anthropic 块 / OpenAI tool_calls / role=tool 均转 `TranscriptEntry`，工具名映射、截断、start 切片、不改入参（验证：`tests/subagents/test_transcript.py`）。
+- [ ] 轨迹存储：成功/失败/达上限均写入 `task.entries`；Fork 只存自有部分（验证：`test_runner.py` / `test_manager.py`）。
+- [ ] F3 任务面板：列表 ↑↓ 选择、Enter 打开轨迹、Esc 返回且索引保持；0.5s 刷新不打断选中（验证：`tests/test_subagent_screen.py`）。
+- [ ] 后台完成摘要直显：聊天区出现「子任务 #N 结论」+ 摘要，同时仍进入 `_msgs`；markup 字符原样显示（验证：`tests/test_subagent_repl.py`）。
 
 ## 验证与测试
 
@@ -35,8 +39,10 @@
 - [ ] 场景 3（多层防线）—— **预期**：`can_delegate: false`（默认）的角色子 Agent **看不到 `agent` 工具**（无法再委派）；`architect`（can_delegate: true）在多级时受 max_depth 上限约束（配 1 时子 Agent 内仍不可见 agent）；后台任务只读（side_effect 工具被滤）。
 - [ ] 场景 4（后台管理）—— **预期**：`/agents` 列出全部后台任务（id/角色/状态/用量）；前台跑 `agent` 任务时按 **Ctrl+B**（输入框禁用，`/bg` 不可输入）切后台后主对话不阻塞、子 Agent 继续跑完；空闲时 `/bg <id>` 仍可用；并发超过 4 时新委派回灌「并发已满」。
 - [ ] 场景 5（故障隔离）—— **预期**：让子 Agent 执行注定失败的任务（如未知角色），主 Agent 继续跑不崩溃，日志与系统行有明确 `error` 记录；取消后台任务后 status 变 cancelled。
+- [ ] 场景 6（子任务观察视图，增量 B）—— **预期**：后台 fork 运行中，输入框上方出现计数提示；**F3** 打开任务列表，↑↓ 切换、Enter 打开完整轨迹（用户/助手/工具调用/工具结果）、Esc 回列表且选中不变、Esc 关闭；后台完成时聊天区直接出现「子任务 #N 结论」+ 摘要；前台定义式任务完成后同样可在 F3 查看轨迹；轨迹内 `[x]`/`<file>` 等字符原样显示；F3 开关后可直接继续输入。
 
 ## 验收口径
 
 - [x] spec AC1–AC10 均有对应可观测条目（AC1↔四级加载 · AC2↔工具常驻 · AC3↔定义式 · AC4↔Fork · AC5↔隔离共享 · AC6↔回灌 · AC7↔多层防线 · AC8↔后台管理 · AC9↔故障隔离 · AC10↔零回归）。
+- [x] spec AC11（增量）有对应可观测条目（F11 ↔ 提示行 + F3 列表/轨迹 + 摘要直显）。
 - [ ] 人工真机清单（阶段五交付后对照）逐项登记实际结果，与预期不符如实记录为差异。（**待阶段六真机验收**）

@@ -169,6 +169,53 @@
 
 **验证：** 以上命令输出符合预期。
 
+## T12: transcript.py 扁平化（F11 增量）
+
+**文件：** `codepilot/subagents/transcript.py`、`tests/subagents/test_transcript.py`
+**依赖：** 无
+**步骤：**
+1. `TranscriptEntry(kind, text, name, is_error)` frozen dataclass。
+2. `flatten(msgs, *, start=0, tool_result_max, tool_input_max)` 兼容 Anthropic 块与 OpenAI `tool_calls`/`role=tool`。
+3. 工具结果/参数截断；`start` 切片；不修改入参。
+
+**验证：** 两种协议、工具名映射、截断、start、只读性用例全绿。
+
+## T13: runner/model/manager 轨迹数据层
+
+**文件：** `codepilot/subagents/runner.py`、`model.py`、`manager.py` + 既有测试
+**依赖：** T12
+**步骤：**
+1. `RunResult(summary, usage, entries)`；`SubAgentError.entries`（失败保留部分轨迹）。
+2. `_collect(..., start=0)` 结束/出错时 `flatten(msgs[start:])`。
+3. `_fork_messages` 返回 `(msgs, own_start)`，Fork 只存自有部分。
+4. `SubAgentTask.entries`；`_run_one` 写入成功/失败 entries；新增 `counts()`。
+5. 更新 `test_runner.py` / `test_manager.py` 的二元解包与桩。
+
+**验证：** 子 Agent 成功/失败/达上限均有 entries；Fork 不含父历史文本。
+
+## T14: TUI 面板与轨迹屏 + 摘要直显
+
+**文件：** `codepilot/ui/screens/subagent_screen.py`、`screens/__init__.py`、`ui/app.py`、`theme.tcss`、`tests/test_subagent_screen.py`、`tests/test_subagent_repl.py`
+**依赖：** T13
+**步骤：**
+1. `SubAgentListScreen`：ListView 行、0.5s 原地刷新（保选中）、Enter 推轨迹屏、Esc 关闭。
+2. `SubAgentTranscriptScreen`：RichLog（Text 对象，非 markup）、完成后自动刷新、Esc 返回。
+3. App：F3 绑定、提示行（0.5s）、`action_show_subagents`、后台完成摘要直显（escaped）、`finally` 恢复输入焦点。
+4. tcss 新增两条屏幕样式与提示行样式（id 不冲突）。
+
+**验证：** headless 交互用例全绿；`test_completion_screen.py` 不受 tcss 影响。
+
+## T15: 全量回归 + 文档收口
+
+**文件：** `checklist.md`、`SHARED_PROGRESS.md`
+**依赖：** T12–T14
+**步骤：**
+1. `python -m pytest -q`、`ruff check .`、导入检查。
+2. 更新 checklist（自动化 + 真机步骤）与 SHARED_PROGRESS。
+3. 按 docs/feat 两次提交。
+
+**验证：** 全量通过；真机清单待人工勾选。
+
 ## 执行顺序
 
 ```
@@ -176,8 +223,11 @@ T1 → T2 ─┐
          ├→ T3 → T4 → T5 → T6 → T7 → T10 → T11
 T2(T1) ──┘
          T8(T5 引用，可并行) → T9(T8) ─────────────┘
+
+增量（T11 之后）：T12 → T13 → T14 → T15
 ```
 
 - T1 与 T2 可并行（T2 不依赖 subagents 包）。
 - T8 仅类型引用 T5，可与 T3–T6 并行推进；T9 依赖 T8。
 - T10 在 T6/T9 完成后进行；T11 收口。
+- T12–T15 为 state17 完成后的 UI 增量（方案 B），依赖既有全部实现。

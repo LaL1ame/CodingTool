@@ -186,7 +186,8 @@ codepilot/subagents/
 ├── model.py             — AgentRole / SubAgentTask / RoleError
 ├── loader.py            — 四级发现 + 解析 + 覆盖 + 校验
 ├── manager.py           — SubAgentManager（委派/后台/深度/并发）
-├── runner.py            — run_role_agent / run_fork_agent
+├── runner.py            — run_role_agent / run_fork_agent（返回 RunResult）
+├── transcript.py        — 协议原生消息 → 扁平 TranscriptEntry（F11）
 ├── tool.py              — AgentTool
 └── data/                — 内置角色（随包 package-data，参照 skills/data）
     └── architect.md     — 内置示例角色（默认放行 agent 的样板）
@@ -196,10 +197,15 @@ tests/subagents/
 ├── test_manager.py      — 并发上限 / 深度上限 / 转后台 / 取消 / 状态追踪
 ├── test_runner.py       — 定义式/Fork 式独立 Agent 构造（mock provider）
 ├── test_tool.py         — agent 工具参数分流 / 常驻 / 永不抛错
-└── test_filters.py      — 多层防线（白名单/黑名单/agent禁/后台只读/plan 继承）
+├── test_filters.py      — 多层防线（白名单/黑名单/agent禁/后台只读/plan 继承）
+└── test_transcript.py   — 两种协议扁平化 / 截断 / start 切片（F11）
+
+codepilot/ui/screens/
+├── subagent_screen.py   — SubAgentListScreen（F3 列表）+ SubAgentTranscriptScreen（轨迹）
+tests/test_subagent_screen.py — 列表交互 / 刷新保选中 / 轨迹渲染（headless）
 ```
 
-**既有改动：** `agent.py`（`tool_filter` 参数 + `_build_tools` 末尾调用）、`main.py`（装配 SubAgentManager + 注册 AgentTool + 接线 on_task_done）、`ui/app.py`（命令 + 回灌 + 手动切后台绑定）、`commands/builtins.py`（`/agents` `/bg`）、`pyproject.toml`（`package-data` 加 `subagents/data/*.md`）。
+**既有改动：** `agent.py`（`tool_filter` 参数 + `_build_tools` 末尾调用）、`main.py`（装配 SubAgentManager + 注册 AgentTool + 接线 on_task_done）、`ui/app.py`（命令 + 回灌 + 手动切后台绑定 + F3 面板 + 提示行 + 摘要直显）、`commands/builtins.py`（`/agents` `/bg`）、`pyproject.toml`（`package-data` 加 `subagents/data/*.md`）。
 
 ## 技术决策
 
@@ -222,6 +228,7 @@ tests/subagents/
 | D15 | 插件层 | **预留发现接口 + 默认空目录**，本阶段不真实支持第三方分发 | 范围控制（YAGNI）；目录顺序固定，后续补插件源即可 |
 | D16 | 内置角色 | 内置 `architect` 示例（放行 agent 的样板），走 `package-data` | 开箱即用参照 state15 内置样板惯例；也是 can_delegate 语义的可运行示例 |
 | D17 | 角色名册注入（真机验收修正） | system prompt 加 volatile 名册块（`subagent_injector`，同 memory/skill/hook 注入缝）+ agent 工具 description 列角色名 + `role` 参数 enum 动态生成 | 真机场景 1 暴露：模型看不到角色文件，不知道有哪些角色，遂自己用 read/glob 干活而不调 agent 工具。名册让委派可发现 |
+| D18 | 子任务观察视图（增量 B） | 完成后把 `msgs[start:]` **扁平化为 `TranscriptEntry` 快照**存在 `SubAgentTask.entries`；**F3** 打开 `ListView` 任务列表（↑↓/Enter），Enter 推入轨迹模态屏；后台完成摘要**直接写聊天区**（escaped）并照旧进 `_msgs`；顺带修复流式结束后输入框焦点丢失 | 只存扁平快照不存原始协议消息：Fork 不保留父历史深拷贝、UI 与协议解耦、内存可控（N3/N5）。双模态沿用 `CompletionScreen` 已验证的 `ListView` 模式，选中/焦点由 Textual 自动保持。F3 与已验证可达的 F2 同属功能键；摘要直显解决「后台结果必须再问一轮」 |
 
 ## Spec 覆盖
 
@@ -237,5 +244,6 @@ tests/subagents/
 | F8 后台管理器 | manager + D11/D12 | | |
 | F9 故障隔离/可观测 | manager on_task_done + 日志 | | |
 | F10 执行控制 | D9/D10/D11/D12 | | |
+| F11 子任务可视化 | D18 + transcript.py + subagent_screen.py | | |
 
 全部 F/N 有归属，无遗漏。
