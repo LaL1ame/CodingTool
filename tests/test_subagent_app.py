@@ -6,12 +6,29 @@ from textual.widgets import Static
 
 from codepilot.agent import Agent
 from codepilot.config import ProviderConfig
-from codepilot.protocols import Delta
+from codepilot.protocols import Delta, ToolResult
 from codepilot.providers import BaseProvider
 from codepilot.subagents.model import SubAgentTask
 from codepilot.tools.registry import ToolRegistry
 from codepilot.ui.app import CodePilotApp
 from codepilot.ui.screens.subagent_screen import SubAgentListScreen
+
+
+def test_agent_result_surfaces_worktree_line():
+    """前台 agent 多行结果折叠时，Worktree 保留/清理行必须仍然可见。"""
+    result = ToolResult(
+        call_id="", name="agent",
+        output="结论第一行\n第二行\n"
+               "[Worktree] 保留 /tmp/wt（分支 codepilot/x，kept/dirty）")
+    shown = CodePilotApp._format_result(result)
+    assert "lines" in shown
+    assert "Worktree" in shown
+    assert "保留" in shown
+
+
+def test_non_agent_result_still_collapses():
+    result = ToolResult(call_id="", name="grep", output="a\nb\nc")
+    assert CodePilotApp._format_result(result) == "3 lines"
 
 
 class _Provider(BaseProvider):

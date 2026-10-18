@@ -810,11 +810,19 @@ class CodePilotApp(App):
         if result.truncated and result.total_items:
             return f"{result.total_items} items (truncated)"
         output = result.output or ""
+        lines = output.split("\n")
+        # state18: agent 工具的多行摘要默认被折叠成 "N lines"，把 Worktree
+        # 保留/清理结果单独带出来，前台任务也能直接看到生命周期结论。
+        if getattr(result, "name", "") == "agent":
+            wt = next(
+                (ln.strip() for ln in lines
+                 if ln.strip().startswith("[Worktree]")), "")
+            if wt:
+                return f"{len(lines)} lines · {escape(wt)}"
         # state15: load_skill 成功反馈在首行 ✅;别把长 SOP 折叠成 "N lines" 而藏掉确认
-        head = output.split("\n", 1)[0]
+        head = lines[0]
         if head.startswith("✅"):
             return head
-        lines = output.split("\n")
         if len(lines) == 1 and len(output) <= 60:
             return output
         return f"{len(lines)} lines"
