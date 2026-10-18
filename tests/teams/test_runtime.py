@@ -185,3 +185,26 @@ def test_member_tool_filter_plan_and_execute():
     assert executed == {"read", "task_list", "task_update", "load_skill"}
     assert "agent" not in executed
     assert "blocked_tool" not in executed
+
+
+async def test_assigned_task_waits_for_dependencies(
+    tmp_path: Path, storage, team: str, board: TaskBoard,
+    settings: TeamSettings,
+):
+    manager = FakeManager()
+    dep = board.create(title="dep")
+    task = board.create(title="A", assignee="alice", depends_on=[dep.id])
+    runtime, agent = _runtime(
+        tmp_path, storage, team, board, settings, manager,
+        [[Delta(text="done")]])
+    await runtime.start()
+    await wait_until(lambda: runtime.status is TeamMemberStatus.BLOCKED)
+    assert not agent.calls
+    assert board.get(task.id).status is TaskStatus.PENDING
+
+    board.update(dep.id, status="in_progress")
+    board.update(dep.id, status="done")
+    runtime.wake()
+    await wait_until(
+        lambda: board.get(task.id).status is TaskStatus.DONE)
+    await runtime.stop()

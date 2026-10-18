@@ -127,6 +127,17 @@ class MemberRuntime:
         self._task = asyncio.create_task(
             self._loop(), name=f"team-member-{self._member.name}")
 
+    def stop_now(self, *, reason: str = "terminated") -> None:
+        """同步请求停止：设置标志并取消 task，不等待收尾（小组切换用）。"""
+        if self._stopped:
+            return
+        self._stopped = True
+        self._wake.set()
+        task = self._task
+        if task is not None and not task.done():
+            task.cancel()
+        logger.info("成员 %s 请求停止: %s", self._member.name, reason)
+
     async def stop(self, *, reason: str = "terminated") -> None:
         if self._stopped:
             return
@@ -207,9 +218,17 @@ class MemberRuntime:
             return
 
         first = True
+        blocked: list[str] = []
+        executed = 0
         for task in tasks:
             if self._stopped:
                 return
+            gaps = self._board.deps_satisfied(task)[1]
+            if gaps:
+                blocked.append(
+                    f"任务 #{task.id} 依赖未完成: "
+                    + ", ".join(f"#{d}" for d in gaps))
+                continue
             approved_plan = ""
             if self._member.requires_approval:
                 approved_plan = await self._approval_flow(task)
@@ -223,8 +242,13 @@ class MemberRuntime:
                 approved_plan=approved_plan,
             )
             first = False
+            executed += 1
             if not ok:
                 return
+        if blocked and not executed:
+            self._set_status(
+                TeamMemberStatus.BLOCKED, note="; ".join(blocked)[:500])
+            return
         self._set_status(TeamMemberStatus.IDLE)
 
     # —— 单回合 Agent 执行 ——

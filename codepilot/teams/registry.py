@@ -334,6 +334,22 @@ class MemberRegistry:
             self._write_registry_unlocked()
             return member
 
+    def remove_member(self, name: str) -> None:
+        """从花名册移除成员并删除元数据（派生失败回滚用）。"""
+        validate_member_name(name)
+        with self._lock():
+            meta = self._read_team_meta_unlocked()
+            if name not in meta.members:
+                return
+            updated = replace(
+                meta, members=tuple(m for m in meta.members if m != name))
+            self._write_team_meta_unlocked(updated)
+            try:
+                self._storage.member_meta_path(self._team, name).unlink()
+            except FileNotFoundError:
+                pass
+            self._write_registry_unlocked()
+
     def update(self, name: str, **fields: Any) -> TeamMember:
         allowed = {
             "role", "worktree_path", "branch", "backend",
