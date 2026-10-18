@@ -295,9 +295,13 @@ class SubAgentManager:
             raise
         except Exception as e:  # noqa: BLE001 - 清理失败不掩盖任务结果
             logger.exception("subagent #%d worktree leave 失败", task.task_id)
-            self._append_worktree_note(task, f"[Worktree] 清理失败: {e}")
+            note = f"[Worktree] 清理失败: {e}"
+            logger.warning("subagent #%d %s", task.task_id, note)
+            self._append_worktree_note(task, note)
             return
-        self._append_worktree_note(task, self._worktree_note(result))
+        note = self._worktree_note(result)
+        logger.info("subagent #%d %s", task.task_id, note)
+        self._append_worktree_note(task, note)
 
     @staticmethod
     def _worktree_note(result) -> str:
