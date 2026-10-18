@@ -6,6 +6,43 @@
 
 ---
 
+## ADR-004:Worktree 隔离采用「仓内固定根 + 每 Agent 独立工具实例 + fail-closed」(2026-10-18,state18)
+
+### 背景
+state17 的子 Agent 复用主工作区与共享 registry：主 Agent 与子 Agent、或两个并行子 Agent
+同时改文件会互相覆盖。需要在同一 Git 仓库内提供文件系统级隔离，同时保持现有工具接口与
+无 `chdir` 的架构。
+
+### 实证
+- `git worktree add` 可在被 gitignore 的 `.codepilot/worktrees/` 内创建并正常登记（真机探针验证）。
+- 目录已存在时只读文件系统三检（目录、`.git` 文件、元数据）即可安全复用，不需要调用 Git。
+- 真机场景 1–10 通过：并行 A/B 不覆盖、dirty 保留、clean 自动清理、同名拒绝、扫描隔离均成立。
+- 场景 9 首轮失败是验收提示词把 `/agents`（任务列表）误当角色名册，导致模型撞轮次上限；
+  扫描隔离探针本身全部通过。
+
+### 决策
+1. **固定仓内根**：`.codepilot/worktrees/<name>`（已 gitignore），分支 `codepilot/<name>`
+   基于主工作区当前 HEAD；元数据独立存 `_meta/<sha1(name)>.json`，不写入工作树。
+2. **每 Agent 独立运行时**：文件/命令工具重新实例化并绑定 worktree，系统工具（agent/
+   load_skill/MCP）共享；env、项目指令、记忆、context offload、permission 全部按
+   worktree 绝对路径重建；不使用 `chdir`。
+3. **触发与命名**：角色 frontmatter `isolation: worktree`；`agent` 工具可传 `worktree`，
+   缺省 `<role>-<task_id>`；名称小写分段制并通过 resolve 包含校验。
+4. **生命周期**：无未提交改动且相对 base 无新提交 → 自动删目录+分支；有变更 → 保留并报告；
+   `/worktree rm --force` 只删目录、分支保留；24h TTL + 启动/每小时清理，三层安全过滤。
+5. **失败策略**：创建、初始化、名称、占用任一失败均 fail-closed，绝不回退主工作区。
+6. **扫描隔离**：指令/角色/Skill 的递归发现剪枝 `.codepilot`；主 Agent 的 glob/grep
+   跳过 worktree 根；显式 read 仍可访问。
+
+### 后果
+- 并行子 Agent 写文件互不覆盖；主会话不会被 worktree 内的规则/角色/Skill 污染。
+- 合并策略、跨目录同步、多 Agent 编排明确不做，留给后续阶段。
+- 已知边界：进程内锁不跨进程；Skill/Hook 仍共享；`manager.cancel` 仍只改状态；
+  glob/grep 先遍历后过滤；要求从仓库根启动。
+- 详细设计与验收见 `docs/state18-worktree/`。
+
+---
+
 ## ADR-003:「每次 edit 后自动格式化」Hook 模式与 AI 助手心智冲突(2026-10-16,state16 真机验收发现)
 
 ### 背景

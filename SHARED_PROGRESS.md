@@ -21,6 +21,7 @@
 - 文件：`codepilot/worktree/*`、`codepilot/subagents/isolation.py`、`subagents/{model,loader,runner,manager,tool}.py`、`ui/app.py`（前台 agent 摘要保留 Worktree 行）、`commands/builtins.py`、`main.py`（装配 + 后台清理）、`memory/resolver.py`、`skills/resolver.py`、`tools/{base,glob_tool,grep_tool}.py`、10 个测试文件。
 - **真机验收记录**：场景 1–10 全过（详见 checklist 底部的「验收记录」）；场景 9 首轮因验收提示词把 `/agents` 误当角色名册导致模型撞 18 轮上限，修正提示词后通过，扫描隔离本身无缺陷。
 - 已知边界：跨进程占用锁缺失；Skill/Hook 仍共享（state17 已知问题延续，Hook command 仍在进程 cwd 执行）；`manager.cancel` 仍只改状态；glob/grep 先遍历后过滤（worktree 大时有成本）；合并/跨目录同步/多 Agent 编排不在本阶段。
+- 核心架构裁决已同步 `docs/decisions.md` **ADR-004**（仓内固定根 + 每 Agent 独立工具实例 + fail-closed）。
 - 新上手：读本文 + `docs/state18-worktree/{spec,plan,task,checklist}.md` + `codepilot/worktree/` 即可恢复。
 
 ### state17（开发完成 + 真机验收通过）
