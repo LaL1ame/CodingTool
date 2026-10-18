@@ -13,7 +13,7 @@ def test_builtin_full_set_and_no_conflicts():
     expected = {"help", "exit", "plan", "do", "mode", "auto", "manual", "strict",
                 "edits", "compact", "continue", "memory", "forget", "clear",
                 "session", "permission", "status", "reload",
-                "agents", "bg", "worktree"}  # state17: +agents/bg; state18: +worktree
+                "agents", "bg", "worktree", "team"}  # state19: +team
     assert names == expected
 
 
@@ -163,5 +163,77 @@ def test_worktree_usage_and_disabled():
     handler(ctx, "bogus")
     assert "用法" in ctx.shown[-1]
     disabled = _WTCtx()
+    handler(disabled, "list")
+    assert "未启用" in disabled.shown[-1]
+
+# —— state19: /team ——
+
+class _TeamCtx(_Ctx):
+    def __init__(self, manager=None):
+        super().__init__()
+        if manager is not None:
+            self.team_manager = manager
+
+
+class _TeamMgr:
+    def __init__(self):
+        self.team_name = "alpha"
+        self.used = []
+        self.created = []
+
+    def list_teams(self):
+        return ["alpha", "beta"]
+
+    def use_team(self, name):
+        self.used.append(name)
+        self.team_name = name
+        return SimpleNamespace(name=name)
+
+    def create_team(self, name):
+        self.created.append(name)
+        self.team_name = name
+        return SimpleNamespace(name=name)
+
+    def team_summary(self):
+        return "小组 alpha（当前）"
+
+
+def test_team_list_and_show():
+    ctx = _TeamCtx(_TeamMgr())
+    handler = build_registry().resolve("team").handler
+    handler(ctx, "list")
+    assert "* alpha" in ctx.shown[-1]
+    assert "beta" in ctx.shown[-1]
+    handler(ctx, "show")
+    assert "小组 alpha" in ctx.shown[-1]
+
+
+def test_team_use_and_create():
+    mgr = _TeamMgr()
+    ctx = _TeamCtx(mgr)
+    handler = build_registry().resolve("team").handler
+    handler(ctx, "use beta")
+    handler(ctx, "create gamma")
+    assert mgr.used == ["beta"]
+    assert mgr.created == ["gamma"]
+
+
+def test_team_errors_and_disabled():
+    class _Bad(_TeamMgr):
+        def use_team(self, name):
+            raise RuntimeError("不存在")
+
+        def create_team(self, name):
+            raise RuntimeError("已存在")
+
+    ctx = _TeamCtx(_Bad())
+    handler = build_registry().resolve("team").handler
+    handler(ctx, "use missing")
+    assert "切换小组失败" in ctx.shown[-1]
+    handler(ctx, "create alpha")
+    assert "创建小组失败" in ctx.shown[-1]
+    handler(ctx, "bogus")
+    assert "用法" in ctx.shown[-1]
+    disabled = _TeamCtx()
     handler(disabled, "list")
     assert "未启用" in disabled.shown[-1]

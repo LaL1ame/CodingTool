@@ -264,6 +264,55 @@ def build_registry() -> CommandRegistry:
               h_worktree, usage="list | rm <name> [--force]",
               arg_hint="list|rm")
 
+    # —— state19: Team Lead 小组 ——
+    def h_team(ctx, params):
+        mgr = getattr(ctx, "team_manager", None)
+        if mgr is None:
+            ctx.show("团队系统未启用")
+            return
+        args = params.split()
+        sub = args[0].lower() if args else "list"
+        if sub == "list":
+            teams = mgr.list_teams()
+            if not teams:
+                ctx.show("当前没有小组。用 /team create <name> 创建。")
+                return
+            current = mgr.team_name
+            lines = ["[bold]Teams[/bold] (* = 当前)"]
+            for name in teams:
+                lines.append(f"  {'*' if name == current else ' '} {name}")
+            ctx.show("\n".join(lines))
+            return
+        if sub == "use":
+            if len(args) < 2:
+                ctx.show("用法: /team use <name>")
+                return
+            try:
+                meta = mgr.use_team(args[1])
+            except Exception as e:  # noqa: BLE001
+                ctx.show(f"切换小组失败: {e}")
+                return
+            ctx.show(f"当前小组: {meta.name}")
+            return
+        if sub == "show":
+            ctx.show(mgr.team_summary())
+            return
+        if sub == "create":
+            if len(args) < 2:
+                ctx.show("用法: /team create <name>")
+                return
+            try:
+                meta = mgr.create_team(args[1])
+            except Exception as e:  # noqa: BLE001
+                ctx.show(f"创建小组失败: {e}")
+                return
+            ctx.show(f"已创建小组: {meta.name}")
+            return
+        ctx.show("用法: /team list | use <name> | show | create <name>")
+    _register("team", CommandKind.LOCAL, "管理长期小组(list/use/show/create)",
+              h_team, usage="list | use <name> | show | create <name>",
+              arg_hint="list|use|show|create")
+
     # state15: /review 命令已移交内置 review Skill（统一入口）。旧 PROMPT 载荷
     # 并入 codepilot/skills/data/review/SKILL.md 正文；REVIEW_PROMPT 保留仅向后兼容。
     # —— PROMPT: 预设提示词送 AI ——

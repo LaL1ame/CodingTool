@@ -34,6 +34,7 @@ from codepilot.commands import (
 from codepilot.modes import ModeState, ReleasePolicy, ToolAxis
 from codepilot.providers import BaseProvider
 from codepilot.skills import BUILTIN_DIR as _SKILL_BUILTIN_DIR
+from codepilot.teams import filter_team_tools
 from codepilot.permissions.mode import PermissionMode
 from codepilot.permissions.policy import HumanChoice
 from codepilot.ui import palette
@@ -70,7 +71,8 @@ class CodePilotApp(App):
              hook_engine=None,
              hook_injector=None,
              subagent_manager=None,
-             worktree_manager=None) -> None:
+             worktree_manager=None,
+             team_manager=None) -> None:
         super().__init__()
         self._agent = agent
         self._context_manager = context_manager
@@ -83,6 +85,8 @@ class CodePilotApp(App):
         self._subagent_manager = subagent_manager
         # state18: Worktree 管理器（/worktree list|rm 命令经 CommandContext 触达）。
         self._worktree_manager = worktree_manager
+        # state19: TeamManager（/team 命令 + 成员事件回灌）。
+        self._team_manager = team_manager
         self._mode_state = ModeState(release=ReleasePolicy(release))
         if initial_modes:
             self._mode_state.restore(initial_modes)
@@ -108,6 +112,8 @@ class CodePilotApp(App):
         # state17: 流式期间完成的后台子任务摘要先入队，空闲时再进 _msgs（防插进
         # assistant tool_calls 与 tool_result 之间破坏协议序列）。
         self._pending_subagent: list[str] = []
+        # state19: 流式期间到达的团队事件同样先入队，结束后回灌。
+        self._pending_team: list[str] = []
         # state16 方案A:待结果的工具登记表 id → (name, params);结果到达即写一行入 #chat
         self._tool_rows: dict[str, tuple[str, str]] = {}
         # 会话级累计 token(修正:单轮覆盖的问题)
@@ -156,10 +162,14 @@ class CodePilotApp(App):
             self._subagent_manager.set_on_task_done(self._on_subagent_done)
             self._subagent_manager.set_parent_msgs(
                 lambda: self._chat._msgs if self._chat is not None else [])
+            # state19: Fork 不应继承 Lead/成员团队工具。
             self._subagent_manager.set_parent_visible(
-                lambda: self._agent.visible_tool_names())
+                lambda: filter_team_tools(self._agent.visible_tool_names()))
             self._subagent_hint_timer = self.set_interval(
                 0.5, self._refresh_subagent_hint)
+        # state19: 成员消息/状态事件 → Lead 上下文（流式期间先入队）。
+        if self._team_manager is not None:
+            self._team_manager.set_on_event(self._on_team_event)
 
         # state16: session_start 发射 + notify 接线（app 就绪后才可写 ChatLog）
         if self._hook_engine is not None:
@@ -230,6 +240,43 @@ class CodePilotApp(App):
 
     def _append_subagent_summary(self, content: str) -> None:
         """把子任务摘要并入主对话上下文；若末条已是 user 则合并，避免连续同角色。"""
+        if self._chat is None:
+            return
+        msgs = self._chat._msgs
+        if msgs and msgs[-1].get("role") == "user":
+            last = msgs[-1]
+            c = last.get("content")
+            if isinstance(c, list):
+                last["content"] = [{"type": "text", "text": content}, *c]
+            else:
+                last["content"] = (c or "") + "\n\n" + content
+        else:
+            msgs.append({"role": "user", "content": content})
+
+    # —— state19: 团队事件回灌 ——
+    def _on_team_event(self, event) -> None:
+        try:
+            task = (f" task=#{event.task_id}"
+                    if event.task_id is not None else "")
+            line = (f"[team] {event.member} {event.kind}{task}："
+                    f"{event.summary}")
+            try:
+                self.query_one("#chat", ChatLog).write(
+                    f"\n[dim]{escape(line)}[/dim]")
+            except NoMatches:
+                pass
+            content = (
+                f"【团队事件】{event.member}（{event.kind}）{task}："
+                f"{event.summary}\n"
+                "请用 team_inbox 读取未读消息全文；需要审批时用 team_decide。")
+            if self._streaming:
+                self._pending_team.append(content)
+            else:
+                self._append_team_notice(content)
+        except Exception as e:  # noqa: BLE001 - 通知失败不打断主流程
+            _log.warning("team event 写屏失败: %s", e)
+
+    def _append_team_notice(self, content: str) -> None:
         if self._chat is None:
             return
         msgs = self._chat._msgs
@@ -748,6 +795,11 @@ class CodePilotApp(App):
                 for content in self._pending_subagent:
                     self._append_subagent_summary(content)
                 self._pending_subagent.clear()
+            # state19: 团队事件同样在协议序列稳定后回灌。
+            if self._pending_team:
+                for content in self._pending_team:
+                    self._append_team_notice(content)
+                self._pending_team.clear()
 
     async def ask_permission(self, tool: str, subject: str) -> HumanChoice:
         from codepilot.ui.screens import PermissionScreen
@@ -846,6 +898,11 @@ class _CommandContextImpl(CommandContext):
     def worktree_manager(self):
         """state18: /worktree 命令经 getattr 触达 Worktree 管理器。"""
         return self._app._worktree_manager
+
+    @property
+    def team_manager(self):
+        """state19: /team 命令经 getattr 触达 TeamManager。"""
+        return self._app._team_manager
 
     def show(self, message: str) -> None:
         self._app._chat_log().write("\n" + message)

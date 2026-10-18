@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import logging
 import os
 import sys
 from datetime import datetime
@@ -27,6 +28,9 @@ from codepilot import skills as _skills
 from codepilot.ui.app import CodePilotApp
 from codepilot.worktree import WorktreeManager, load_settings
 from codepilot.worktree.settings import WorktreeSettingsError
+from codepilot.teams import TeamSettingsError, load_team_settings
+from codepilot.teams.manager import TeamManager
+from codepilot.teams.tools_lead import build_lead_tools
 
 
 def find_config() -> Path:
@@ -205,6 +209,13 @@ def main() -> None:
         sys.exit(1)
     worktree_manager = WorktreeManager(workspace, worktree_settings)
 
+    # —— Team 系统(state19):配置 + 当前组加载（成员置 offline） ——
+    try:
+        team_settings = load_team_settings(path)
+    except TeamSettingsError as e:
+        print(f"Team configuration error: {e}", file=sys.stderr)
+        sys.exit(1)
+
     # —— SubAgent 系统(state17):角色四级加载 + 委派中心 + 常驻 agent 工具 ——
     # 先于 Agent 构造：agent 的角色名册注入器与 registry 工具注册都依赖它。
     from codepilot.subagents import AgentTool, RoleError, SubAgentManager, load_all
@@ -226,11 +237,34 @@ def main() -> None:
     registry.register(AgentTool(subagent_manager))  # 系统级常驻工具
     # 父上下文/工具集取数在 App.on_mount 接线（ChatManager 尚未创建）。
 
-    def _subagent_blocks() -> list[str]:
-        block = subagent_manager.role_list_block()
-        return [block] if block else []
+    # —— Team 系统装配：base registry 给 SubAgent/成员；lead registry 只多出 Lead 工具 ——
+    team_manager = TeamManager(
+        team_settings,
+        workspace=workspace,
+        base_registry=registry,
+        roles=role_map,
+        provider=provider,
+        env=env,
+        ctx_config=ctx_config,
+        hooks=hook_engine,
+        parent_permission=permission,
+        worktree=worktree_manager,
+        max_rounds=agent_config.max_rounds,
+    )
+    team_manager.load_current()
+    lead_registry = registry.clone()
+    for team_tool in build_lead_tools(team_manager):
+        lead_registry.register(team_tool)
 
-    agent = Agent(provider=provider, registry=registry, workspace=workspace,
+    def _subagent_blocks() -> list[str]:
+        blocks = []
+        block = subagent_manager.role_list_block()
+        if block:
+            blocks.append(block)
+        blocks.append(team_manager.lead_context())
+        return blocks
+
+    agent = Agent(provider=provider, registry=lead_registry, workspace=workspace,
                   max_rounds=agent_config.max_rounds, max_unknown=agent_config.max_unknown,
                   env=env, refresh_every=agent_config.prompt_refresh_every,
                   permission=permission, context_manager=context_manager,
@@ -275,7 +309,8 @@ def main() -> None:
                        hook_engine=hook_engine,
                        hook_injector=hook_injector,
                        subagent_manager=subagent_manager,
-                       worktree_manager=worktree_manager)
+                       worktree_manager=worktree_manager,
+                       team_manager=team_manager)
 
     # state16: compact 事件发射接线（ContextManager 不 import hooks，回调由 main 接）
     context_manager.on_compact = lambda: hook_engine.fire("compact", {})
@@ -286,7 +321,7 @@ def main() -> None:
     user_cfg = Path.home() / ".config" / "codepilot" / "config.yaml"
     proj_cfg = Path(os.environ.get("MEWCODE_CONFIG", str(Path.cwd() / "config.yaml")))
     mcp_specs = load_mcp_config(user_cfg, proj_cfg)
-    mcp_manager = McpManager(registry)
+    mcp_manager = McpManager(registry, extra_registries=[lead_registry])
 
     async def _run_ui() -> None:
         # MCP 后台连接:不阻塞 TUI 启动(远端 server 握手可能数秒/超时)。
@@ -308,6 +343,11 @@ def main() -> None:
                 await cleanup_task
             except (asyncio.CancelledError, Exception):
                 pass
+            # state19: 取消成员协程并释放 worktree 占用锁（保留目录/分支）。
+            try:
+                await team_manager.shutdown()
+            except Exception:  # noqa: BLE001 - 退出清理不阻塞进程
+                logging.getLogger("codepilot").exception("团队 shutdown 失败")
         if connect_task is not None and not connect_task.done():
             connect_task.cancel()
             try:

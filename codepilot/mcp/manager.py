@@ -20,8 +20,14 @@ logger = logging.getLogger("codepilot.mcp")
 
 
 class McpManager:
-    def __init__(self, registry: ToolRegistry) -> None:
+    def __init__(
+        self, registry: ToolRegistry,
+        extra_registries: list[ToolRegistry] | None = None,
+    ) -> None:
+        # state19: Lead registry 是 base 的静态克隆；MCP 后台注册时需同步写入，
+        # 否则 Lead 看不到后连接的 MCP 工具。
         self._registry = registry
+        self._registries = [registry, *(extra_registries or [])]
         self._clients: list[McpClient] = []
 
     @staticmethod
@@ -61,7 +67,8 @@ class McpManager:
             try:
                 adapter = McpToolAdapter(
                     spec.name, tool_name, desc, schema, client, spec.read_only)
-                self._registry.register(adapter)
+                for target in self._registries:
+                    target.register(adapter)
                 registered += 1
             except Exception as e:
                 logger.warning("server %r 工具 %r 注册失败: %s", spec.name, tool_name, e)
