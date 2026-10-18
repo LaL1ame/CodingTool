@@ -8,6 +8,21 @@
 
 ## 最近一次更新：2026-10-18
 
+### state18（开发完成 + 真机验收通过）
+**state18：Worktree 工作目录隔离**（`docs/state18-worktree/`）
+- **状态：四文档获批后开发完成，730 测试绿（基线 584 + 146 新增），新/改文件 ruff 全清；真机场景 1–10 通过，TTL 清理自动化覆盖（2026-10-18 收口）。**
+- 目标：主 Agent 与子 Agent、或两个子 Agent 并行改文件时互不覆盖。用 Git linked worktree 给每个隔离任务独立工作目录；本阶段不做合并策略、跨目录同步与多 Agent 编排。
+- **架构**：新包 `codepilot/worktree/`（model/naming/settings/git/meta/initializer/manager）。隔离子 Agent 由 `subagents/isolation.py` 装配：独立 ToolRegistry（read/write/edit/glob/grep/run 重新绑定 worktree，agent/load_skill/MCP 共享）、独立 env/permission/context offload/memory；系统工具共享；**无 chdir**。
+- **生命周期**：目录固定 `.codepilot/worktrees/<name>`，分支 `codepilot/<name>` 基于主工作区当前 HEAD。目录已存在时只做文件系统三检（目录/`.git` 文件/元数据）快速恢复，不调 Git；同名分支存在则挂接；进程内占用锁，同名并发任务被拒绝。无未提交改动且相对 base 无新提交 → 自动删目录+分支；有变更 → 保留并把路径/分支写进摘要。
+- **关键裁决**：角色 frontmatter `isolation: worktree`；`agent` 工具新增 `worktree` 参数，缺省 `<role>-<task_id>`；名称小写分段制（≤64、≤3 段、字符集 `[a-z0-9._-]`、拒绝 `.`/`..`/保留设备名）；fail-closed，绝不回退主工作区；要求从仓库根启动。
+- **环境初始化**：默认复制 `config.yaml`/`.hooks.yaml`/`codepilot-permissions.local.yaml`；软链 `.venv`/`venv`/`node_modules`；项目根 `.worktree.yaml` 覆盖 copy/symlink/include；include 只复制 `git check-ignore` 命中的文件；hooks 默认共享，必要时 per-worktree 修正。
+- **管理命令**：`/worktree list`、`/worktree rm <name> [--force]`；`--force` 删目录与未提交改动但**保留分支**。清理：24h TTL，启动 + 每小时，三层过滤（路径包含 → 受管理元数据/分支前缀 → 未占用/clean/无新提交）。
+- **扫描隔离**：项目指令、角色、Skill 的递归发现剪枝 `.codepilot`；主 Agent 的 glob/grep 跳过 worktree 根；显式 read 仍可访问。
+- 文件：`codepilot/worktree/*`、`codepilot/subagents/isolation.py`、`subagents/{model,loader,runner,manager,tool}.py`、`ui/app.py`（前台 agent 摘要保留 Worktree 行）、`commands/builtins.py`、`main.py`（装配 + 后台清理）、`memory/resolver.py`、`skills/resolver.py`、`tools/{base,glob_tool,grep_tool}.py`、10 个测试文件。
+- **真机验收记录**：场景 1–10 全过（详见 checklist 底部的「验收记录」）；场景 9 首轮因验收提示词把 `/agents` 误当角色名册导致模型撞 18 轮上限，修正提示词后通过，扫描隔离本身无缺陷。
+- 已知边界：跨进程占用锁缺失；Skill/Hook 仍共享（state17 已知问题延续，Hook command 仍在进程 cwd 执行）；`manager.cancel` 仍只改状态；glob/grep 先遍历后过滤（worktree 大时有成本）；合并/跨目录同步/多 Agent 编排不在本阶段。
+- 新上手：读本文 + `docs/state18-worktree/{spec,plan,task,checklist}.md` + `codepilot/worktree/` 即可恢复。
+
 ### state17（开发完成 + 真机验收通过）
 **state17：SubAgent 系统**（`docs/state17-subagent/`）
 - **状态：开发完成 + 真机验收全部通过（场景 1–6，2026-10-18 收口），584 测试绿，state17 文件 ruff 全清。**
@@ -31,14 +46,17 @@
 
 ### 下一步（待用户确认，勿提前开工）
 - **阶段目标：待定**（用户将在新会话指定）。
-- 候选任务（建议优先级，未排期）：
+- state18 明确不做、可作为后续候选：
+  1. Worktree 合并策略（merge/rebase/cherry-pick）与跨 worktree 代码同步。
+  2. 多 Agent 并行编排/调度与冲突解决。
+  3. 跨会话后台任务持久化、跨进程 worktree 占用锁。
+- 既有已知问题候选：
   1. 修复 Anthropic 流式 usage 解析（`message_start` input/cache + `message_delta` output；补测试）。
   2. 子 Agent 禁用/隔离 `load_skill`（多层防线补一条；评估是否共享 SkillManager）。
   3. `manager.cancel` 真正取消 asyncio task（保存 task handle；明确取消语义）。
   4. 插件级角色源（`subagents/loader.py discover_role_dirs` 已留位置）。
-  5. 跨会话后台任务持久化 / Worktree 隔离 / 多 Agent 编排（state17 明确不做，需新 spec）。
-- 入口文件：`SHARED_PROGRESS.md` → `docs/state17-subagent/` → `codepilot/subagents/`；TUI 观察视图入口 `codepilot/ui/screens/subagent_screen.py`；装配入口 `codepilot/main.py`。
-- 注意事项：新功能仍走 design-first（spec→plan→task→checklist 获批再写码）；`config.yaml`/`.hooks.yaml` 为 gitignore 运行时配置，含密钥，勿提交；全量测试基线 584，`ruff check .` 既有 27 告警不得新增。
+- 入口文件：`SHARED_PROGRESS.md` → `docs/state18-worktree/` → `codepilot/worktree/`、`codepilot/subagents/isolation.py`；装配入口 `codepilot/main.py`；TUI 观察入口 `codepilot/ui/screens/subagent_screen.py`。
+- 注意事项：新功能仍走 design-first（spec→plan→task→checklist 获批再写码）；`config.yaml`/`.hooks.yaml`/`.agents` 等为 gitignore 运行时配置，勿提交；全量测试基线 **730**，`ruff check .` 既有 27 告警不得新增；验收遗留的测试 worktree 与 `codepilot/*` 分支已提示用户清理。
 
 ### state16（开发完成 + 真机验收通过）
 **state16：Hook 系统**（`docs/state16-hook-system/`）
