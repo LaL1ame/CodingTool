@@ -21,6 +21,7 @@
 | 修改 | `codepilot/tools/registry.py` | `clone()` |
 | 修改 | `codepilot/worktree/manager.py` | `release(handle)` |
 | 修改 | `codepilot/main.py` | 装配 |
+| 修改 | `codepilot/mcp/manager.py` | MCP 工具同步写入 Lead registry |
 | 修改 | `codepilot/ui/app.py` | 事件回灌与命令上下文 |
 | 修改 | `codepilot/commands/builtins.py` | `/team` 命令 |
 | 修改 | `config.example.yaml` | `team:` 示例 |

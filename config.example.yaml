@@ -45,3 +45,15 @@ session:
 memory:
   auto_memory: true           # 每轮自然停后是否后台自动提炼笔记(四类去重)。
                               # 设 false 则只保留指令文件注入 + /memory /forget 手动管理。
+
+# 团队系统配置（可选；state19）
+team:
+  root: ~/.config/codepilot/teams   # 小组持久化根目录（按组名分文件夹）
+  approval_timeout_seconds: 600     # 成员等待 Lead 审批的超时；超时转 blocked
+  approval_poll_seconds: 0.5        # 审批等待轮询间隔
+  lock_timeout_seconds: 5           # 邮箱/任务板文件锁最长等待
+  lock_stale_seconds: 30            # 锁文件超过该时长视为过期，可被接管
+  lock_retry_seconds: 0.05          # 锁重试间隔
+  message_summary_chars: 120        # 消息摘要最大字符数
+  max_unread_per_wakeup: 20         # 成员一次任务边界最多消费的未读消息数
+  default_backend: auto             # auto / inprocess；terminal 预留 state20

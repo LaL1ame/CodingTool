@@ -707,3 +707,17 @@ tests/teams/                          （新建）
 | N1/N2 | `locks.py` + `storage.py` + `naming.py` |
 | N3/N4 | 全模块日志与错误类型 + runtime 故障隔离 |
 | N5/N6/N7 | registry 分层、可注入设置、临时目录测试 |
+
+## 实现偏差记录（2026-10-18）
+
+1. **worktree 命名改为三级嵌套** `team/<team>/<member>`：原 `team-<team>-<member>`
+   在 team/member 含 `-`/`.` 时可能产生歧义（不同组合映射到同一目录）。嵌套名
+   天然无歧义，且仍满足 state18 的 64 字符/3 段限制。
+2. **枚举实现用 `class X(str, Enum)`**：兼容项目声明的 Python 3.10（`StrEnum` 为 3.11+）。
+3. **MCP 额外 registry**：`lead_registry` 是 base 的静态克隆，MCP 后台连接后若只写 base，
+   Lead 会看不到新工具；`McpManager` 增加 `extra_registries`，连接成功后同步写入 Lead。
+4. **依赖门控扩展到指派路径**：Lead 直接指派但依赖未完成的 pending 任务，成员运行时
+   会转 blocked、不执行，避免绕过 `claim` 的依赖检查。
+5. **成员系统工具收窄**：成员 registry 显式排除 `agent` 与 `load_skill`；MCP 工具保留。
+6. **测试新增文件**：`tests/test_team_app.py`、`tests/teams/test_wiring.py`、
+   `tests/teams/test_model.py`、`tests/teams/test_prompts.py`。
