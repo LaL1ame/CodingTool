@@ -48,7 +48,9 @@ def lead_context_block(
     lines.append(
         "你是 Lead：用 team_* 工具建组/派人/建任务/发消息/审批/终止；"
         "成员协作工具（task_*/send_message/broadcast）不在你的工具集中。"
-        "成员消息到达时会收到通知，用 team_inbox 读取全文。")
+        "成员消息到达时会收到通知，用 team_inbox 读取全文。"
+        "等待成员时不要用 shell sleep 轮询；用 team_show/team_task_list 查看状态，"
+        "或结束本回合等待事件通知。")
     return "\n".join(lines)
 
 
@@ -117,14 +119,22 @@ def task_execution_prompt(
     return "\n".join(lines)
 
 
-def task_planning_prompt(task: Task) -> str:
+def task_planning_prompt(
+    task: Task, *, unread: list[TeamMessage] | None = None,
+) -> str:
     deps = ", ".join(f"#{d}" for d in task.depends_on) or "无"
-    return (
-        f"请为共享任务 #{task.id} 制定执行计划：{task.title}\n"
-        f"描述：{task.description or '（无）'}\n"
-        f"依赖：{deps}\n"
+    lines = [
+        f"请为共享任务 #{task.id} 制定执行计划：{task.title}",
+        f"描述：{task.description or '（无）'}",
+        f"依赖：{deps}",
+    ]
+    messages = _format_messages(unread or [])
+    if messages:
+        lines.append(f"\n{messages}")
+    lines.append(
         "你可以读取文件、查看任务板，但不得写文件、执行命令、发送消息或修改任务。"
         "只输出计划正文。")
+    return "\n".join(lines)
 
 
 def message_turn_prompt(messages: list[TeamMessage]) -> str:

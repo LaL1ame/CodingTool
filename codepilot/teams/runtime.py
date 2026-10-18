@@ -196,49 +196,73 @@ class MemberRuntime:
             logger.exception("成员 %s 循环异常", self._member.name)
             self._fail(f"成员循环异常: {e}")
 
-    async def _cycle(self) -> None:
-        unread = self._mailbox.consume_unread(
-            limit=self._settings.max_unread_per_wakeup)
-        if unread:
-            outcome = await self._run_agent(message_turn_prompt(unread))
-            if outcome.error:
-                self._fail(outcome.error)
-                return
-            if outcome.paused_reason:
-                self._set_status(
-                    TeamMemberStatus.BLOCKED,
-                    note=f"消息回合暂停: {outcome.paused_reason}")
-                return
-
-        tasks = self._board.list(
-            assignee=self._member.name,
-            status="pending")
-        if not tasks:
-            self._set_status(TeamMemberStatus.IDLE)
-            return
-
-        first = True
+    def _split_runnable(self, tasks):
+        runnable = []
         blocked: list[str] = []
-        executed = 0
         for task in tasks:
-            if self._stopped:
-                return
             gaps = self._board.deps_satisfied(task)[1]
             if gaps:
                 blocked.append(
                     f"任务 #{task.id} 依赖未完成: "
                     + ", ".join(f"#{d}" for d in gaps))
-                continue
+            else:
+                runnable.append(task)
+        return runnable, blocked
+
+    async def _cycle(self) -> None:
+        unread = self._mailbox.consume_unread(
+            limit=self._settings.max_unread_per_wakeup)
+        tasks = self._board.list(
+            assignee=self._member.name,
+            status="pending")
+        runnable, blocked = self._split_runnable(tasks)
+
+        # 有可执行任务时，未读消息并入任务提示（审批任务并入计划提示），
+        # 不再单独跑消息回合 —— 否则需审批成员会先以 text 发一份计划，
+        # 运行时随后又发一次正式 plan_request。
+        if not runnable:
+            if unread:
+                outcome = await self._run_agent(message_turn_prompt(unread))
+                if outcome.error:
+                    self._fail(outcome.error)
+                    return
+                if outcome.paused_reason:
+                    self._set_status(
+                        TeamMemberStatus.BLOCKED,
+                        note=f"消息回合暂停: {outcome.paused_reason}")
+                    return
+                # 消息回合可能领取/创建了新任务，重新读取一次。
+                tasks = self._board.list(
+                    assignee=self._member.name,
+                    status="pending")
+                runnable, blocked = self._split_runnable(tasks)
+            if not runnable:
+                if blocked:
+                    self._set_status(
+                        TeamMemberStatus.BLOCKED,
+                        note="; ".join(blocked)[:500])
+                else:
+                    self._set_status(TeamMemberStatus.IDLE)
+                return
+
+        first = True
+        executed = 0
+        for task in runnable:
+            if self._stopped:
+                return
             approved_plan = ""
+            exec_unread = unread if first else []
             if self._member.requires_approval:
-                approved_plan = await self._approval_flow(task)
+                approved_plan = await self._approval_flow(
+                    task, unread=exec_unread)
+                exec_unread = []
                 if approved_plan is None:
                     if self._stopped:
                         return
                     continue
             ok = await self._execute_task(
                 task,
-                unread=unread if first else [],
+                unread=exec_unread,
                 approved_plan=approved_plan,
             )
             first = False
@@ -275,12 +299,16 @@ class MemberRuntime:
         return AgentOutcome("".join(chunks).strip())
 
     # —— 审批 ——
-    async def _approval_flow(self, task) -> str | None:
-        """返回批准的计划正文；驳回/停止返回 None。"""
+    async def _approval_flow(self, task, *, unread=None) -> str | None:
+        """返回批准的计划正文；驳回/停止返回 None。
+
+        `unread` 是本次任务边界消费到的消息，并入计划提示，避免再跑消息回合。
+        """
         self._phase.value = MemberPhase.PLAN
         try:
             self._set_status(TeamMemberStatus.RUNNING, task_id=task.id)
-            outcome = await self._run_agent(task_planning_prompt(task))
+            outcome = await self._run_agent(
+                task_planning_prompt(task, unread=unread or []))
         finally:
             self._phase.value = MemberPhase.EXECUTE
         if outcome.error:

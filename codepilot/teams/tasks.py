@@ -267,6 +267,10 @@ class TaskBoard:
         unknown = set(fields) - allowed
         if unknown:
             raise TeamTaskError(f"不支持的任务字段: {', '.join(sorted(unknown))}")
+        # assignee 校验会经 is_member 回调读取 MemberRegistry，而注册表使用同一把
+        # 非重入 team.lock；必须在取锁前完成，否则锁内再次 acquire 会超时。
+        if "assignee" in fields:
+            self._validate_assignee(fields["assignee"])
         with self._lock():
             next_id, tasks = self._load_unlocked()
             task = tasks.get(task_id)
@@ -284,7 +288,6 @@ class TaskBoard:
                 changes["depends_on"] = self._validate_deps(
                     fields["depends_on"], task_id=task_id, tasks=tasks)
             if "assignee" in fields:
-                self._validate_assignee(fields["assignee"])
                 changes["assignee"] = fields["assignee"]
             if "status" in fields:
                 status = _coerce_status(fields["status"])

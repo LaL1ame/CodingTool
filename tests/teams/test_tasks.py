@@ -136,3 +136,29 @@ def test_corrupt_tasks_file_is_backed_up(
     t = board.create(title="A")
     assert t.id == 1
     assert list(storage.team_dir(team).glob("tasks.json.corrupt-*"))
+
+
+def test_update_assignee_does_not_reacquire_team_lock(
+    storage: TeamStorage, team: str, tmp_path,
+):
+    """assignee 校验走 registry 锁；不能在外层 team.lock 内再次 acquire。"""
+    from dataclasses import replace
+
+    from codepilot.teams.model import (
+        TeamMember, TeamMemberBackend, TeamMemberStatus,
+    )
+    from codepilot.teams.registry import MemberRegistry
+
+    fast = replace(storage.settings, lock_timeout_seconds=0.3)
+    st = TeamStorage(storage.root, fast)
+    registry = MemberRegistry(st, team, workspace=tmp_path)
+    registry.add_member(TeamMember(
+        name="alice", role="coder", worktree_path=tmp_path / "wt",
+        branch="codepilot/team/alpha/alice",
+        backend=TeamMemberBackend.INPROCESS,
+        requires_approval=False, status=TeamMemberStatus.IDLE,
+        created_at=1.0, updated_at=1.0))
+    board = TaskBoard(st, team, is_member=registry.is_assignable)
+    task = board.create(title="A")
+    updated = board.update(task.id, assignee="alice")
+    assert updated.assignee == "alice"

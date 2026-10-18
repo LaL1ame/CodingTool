@@ -165,3 +165,36 @@ async def test_stop_during_approval(
     await _start_and_wait_plan(runtime, manager)
     await runtime.stop()
     assert not runtime.running
+
+
+async def test_unread_message_merges_into_plan_not_extra_turn(
+    tmp_path: Path, storage, team: str, board: TaskBoard,
+    settings: TeamSettings,
+):
+    manager = FakeManager()
+    task = board.create(title="A", assignee="alice")
+    runtime, agent, mailbox = _runtime(
+        tmp_path, storage, team, board, settings, manager,
+        [[Delta(text="计划")], [Delta(text="完成")]])
+    mailbox.append(mailbox.make(
+        sender="lead", recipient="alice", type="text",
+        body="请开始任务 #1，先提交计划"))
+    await runtime.start()
+    await wait_until(lambda: any(
+        getattr(m.type, "value", m.type) == "plan_request"
+        for m in manager.sent))
+
+    assert len(agent.calls) == 1
+    assert agent.calls[0]["phase"] == MemberPhase.PLAN
+    assert "请开始任务 #1" in agent.calls[0]["last"]["content"]
+    types = [getattr(m.type, "value", m.type) for m in manager.sent]
+    assert "text" not in types
+
+    mailbox.append(mailbox.make(
+        sender="lead", recipient="alice", type="plan_decision",
+        task_id=task.id, approved=True, reason="ok"))
+    runtime.wake()
+    await wait_until(
+        lambda: board.get(task.id).status is TaskStatus.DONE)
+    assert len(agent.calls) == 2
+    await runtime.stop()
