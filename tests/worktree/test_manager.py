@@ -338,3 +338,16 @@ async def test_periodic_cleanup_runs_immediately(git_repo):
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+def test_release_keeps_dir_and_frees_name(git_repo):
+    mgr = _mgr(git_repo)
+    handle = _enter(mgr, "release-test")
+    path = handle.path
+    mgr.release(handle)
+    assert path.is_dir()
+    assert (path / ".git").is_file()
+    # 占用锁已释放，可再次快速恢复同名 worktree
+    again = _enter(mgr, "release-test")
+    assert again.reused
+    mgr.release(again)

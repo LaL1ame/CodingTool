@@ -232,6 +232,15 @@ class WorktreeManager:
             finally:
                 self._active.pop(handle.name, None)
 
+    def release(self, handle: WorktreeHandle) -> None:
+        """释放占用锁但不做保留/删除判定；目录与分支保持不变。
+
+        state19 团队成员在 idle/blocked/running 期间长期占用 worktree；
+        终止、失败或进程退出时用本方法释放名称锁，供后续重新派生复用。
+        """
+        with self._lock:
+            self._active.pop(handle.name, None)
+
     def remove(self, name: str, *, force: bool = False) -> ExitResult:
         with self._lock:
             resolved = validate_name(name)

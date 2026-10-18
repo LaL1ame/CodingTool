@@ -74,6 +74,9 @@ class TeamMessageType(StrEnum):
     STATUS = "status"
 ```
 
+> 实现注：项目声明 `requires-python >=3.10`，而 `StrEnum` 是 3.11+；代码中统一用
+> `class X(str, Enum)`，语义等价。
+
 ```python
 @dataclass(frozen=True)
 class TeamSettings:
@@ -263,7 +266,7 @@ def member_worktree_name(team: str, member: str) -> str
 
 规则：1–24 字符、单段、小写 `[a-z0-9][a-z0-9._-]*`、不以点/空格结尾、
 拒绝 `.`/`..`、Windows 保留名；成员名不得为 `lead`。
-`member_worktree_name` 产出 `team-<team>-<member>`（最长 54），并再走
+`member_worktree_name` 产出 `team/<team>/<member>`（最长 54），并再走
 state18 的 `validate_name` 校验，确保与 worktree 命名规则一致。
 
 **依赖：** `codepilot.worktree.naming.validate_name`（仅校验，不产生反向依赖）。
@@ -521,7 +524,7 @@ broadcast(body)
 Lead team_spawn(name, role, backend, requires_approval)
   → TeamManager 校验组/名/角色/后端
   → 注册表 + 成员元数据 status=spawning
-  → asyncio.to_thread(WorktreeManager.enter, "team-<team>-<member>")
+  → asyncio.to_thread(WorktreeManager.enter, "team/<team>/<member>")
   → 构造 Agent（隔离 registry + 成员工具 + 团队提示）与 MemberRuntime
   → runtime.start()（asyncio task）
   → status=idle；返回成员快照
@@ -655,7 +658,7 @@ tests/teams/                          （新建）
 | 原子写 | 临时文件 + `os.replace` | 避免半写 JSON；Windows 上同样是原子替换 |
 | 邮箱读状态 | JSONL + 锁内重写 | 消息格式直观、可审计；规模按数百条设计，重写成本可接受 |
 | 注册表 | 派生索引，成员元数据为真源 | 避免两份数据漂移；损坏时可从 `members/*.json` 重建 |
-| worktree 命名 | `team-<team>-<member>` | 与 state17 命名空间隔离；长度受限可校验；一个成员一个固定目录 |
+| worktree 命名 | `team/<team>/<member>` | 与 state17 命名空间隔离；长度受限可校验；一个成员一个固定目录 |
 | 成员 worktree 生命周期 | idle/blocked/running 期间保持占用，终止/退出时 release 保留 | 防止同名成员被重复派生；state20 合并需要保留改动 |
 | 后端选择 | auto → inprocess；显式 terminal 报错 | 不静默降级；state20 再扩展真实终端后端 |
 | 审批计划 | 独立只读计划回合 + 内部 plan_request | 计划确实由成员生成，且不可能在批准前写文件；无需额外成员工具 |
@@ -664,7 +667,7 @@ tests/teams/                          （新建）
 | Lead 通知 | 邮箱真源 + App 通知队列 + `team_inbox` 读全文 | 避免长计划塞爆主上下文；复用 state17 的流式安全回灌模式 |
 | 成员系统工具 | 排除 `agent` 与 `load_skill`，保留 MCP | 防止嵌套委派与共享 SkillManager 状态污染；MCP 工具是外部能力，不涉及团队状态 |
 | 权限询问 | TeamManager 包一层 asyncio.Lock 串行化 human_callback | 多成员同时请求权限时避免 TUI 模态屏竞争 |
-| 名称长度 | 小组/成员各 ≤24 字符 | 与 `team-<team>-<member>` 的 64 字符 worktree 限制相容，避免哈希映射 |
+| 名称长度 | 小组/成员各 ≤24 字符 | 与 `team/<team>/<member>` 的 64 字符 worktree 限制相容，避免哈希映射 |
 | 计划文档 | 不做全局 TUI 面板，`/team show` + 日志 + 工具结果 | 控制本阶段范围；观察视图可在后续阶段补 |
 
 ## 风险与已知边界

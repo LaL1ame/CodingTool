@@ -56,7 +56,7 @@
 1. 实现 `validate_team_name/validate_member_name`：1–24 字符、单段、小写、
    字符集 `[a-z0-9._-]`、首字符字母/数字、拒绝 `.`/`..`、段尾点/空格、保留名。
 2. 成员名 `lead` 保留。
-3. `member_worktree_name(team, member)` 生成 `team-<team>-<member>`，再调用
+3. `member_worktree_name(team, member)` 生成 `team/<team>/<member>`，再调用
    `worktree.naming.validate_name` 校验。
 4. 表驱动测试合法/非法输入、长度边界、大小写、保留名、worktree 名长度。
 

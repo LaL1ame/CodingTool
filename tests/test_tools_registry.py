@@ -77,3 +77,12 @@ class TestOpenAIFormat:
 
     def test_empty_registry(self):
         assert ToolRegistry().to_openai_tools() == []
+
+
+class TestRegistryClone:
+    def test_clone_shares_tools_but_not_registration(self, registry):
+        cloned = registry.clone()
+        assert cloned.get("read") is registry.get("read")
+        cloned.register(_FakeTool("extra"))
+        assert cloned.get("extra") is not None
+        assert registry.get("extra") is None
