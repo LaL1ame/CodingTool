@@ -258,3 +258,22 @@ def _member(tmp_path: Path, name: str):
         backend=TeamMemberBackend.INPROCESS,
         requires_approval=False, status=TeamMemberStatus.IDLE,
         created_at=1.0, updated_at=1.0)
+
+
+async def test_spawn_builds_real_agent(
+    settings: TeamSettings, tmp_path: Path,
+):
+    """不使用 agent_factory 时，_build_runtime 应能构造真实 Agent。"""
+    worktree = FakeWorktree(tmp_path / "wt")
+    workspace = tmp_path / "main"
+    workspace.mkdir(exist_ok=True)
+    mgr = TeamManager(
+        settings, workspace=workspace,
+        base_registry=ToolRegistry(), roles=_roles(),
+        provider=SimpleNamespace(config=SimpleNamespace(model="m")),
+        worktree=worktree)
+    mgr.create_team("alpha")
+    member = await mgr.spawn_member(name="alice", role="coder")
+    assert member.status is TeamMemberStatus.IDLE
+    await mgr.terminate_member("alice")
+    await mgr.shutdown()
