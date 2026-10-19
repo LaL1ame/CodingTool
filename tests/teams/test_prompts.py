@@ -68,6 +68,17 @@ def test_lead_with_team(tmp_path: Path):
     assert "team_inbox" in text
 
 
+def test_lead_access_boundary_block(tmp_path: Path):
+    """Backlog 1：Lead 提示必须包含访问边界硬约束，禁止翻团队存储/源码。"""
+    text = lead_context_block(
+        _team(), [_ref(tmp_path)],
+        {"pending": 0, "in_progress": 0, "done": 0, "cancelled": 0})
+    assert "访问边界" in text
+    assert "team_*" in text
+    assert ".config/codepilot/teams" in text
+    assert "路径越界" in text
+
+
 def test_member_context(tmp_path: Path):
     text = member_context_block(
         _team(), _member(tmp_path), [_ref(tmp_path)])

@@ -51,6 +51,13 @@ def lead_context_block(
         "成员消息到达时会收到通知，用 team_inbox 读取全文。"
         "等待成员时不要用 shell sleep 轮询；用 team_show/team_task_list 查看状态，"
         "或结束本回合等待事件通知。")
+    lines.append(
+        "【访问边界·必须遵守】\n"
+        "团队的一切状态与消息：小组、成员、任务板、邮箱、待审批计划，"
+        "只能通过 team_* 工具读取（team_show / team_task_list / team_inbox）。\n"
+        "禁止用 read / run / grep / glob 直接访问团队持久化目录 "
+        "~/.config/codepilot/teams/ 或 codepilot/teams/ 源码——那是运行内部文件，"
+        "会触发路径越界并被拒绝；需要任何团队信息，一律先查上述 team_* 工具。")
     return "\n".join(lines)
 
 
