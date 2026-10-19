@@ -6,7 +6,28 @@
 
 ---
 
-## 最近一次更新：2026-10-18
+## 最近一次更新：2026-10-19
+
+### state19（开发完成 + 真机验收通过）
+**state19：Team Lead 长期小组**（`docs/state19-team/`）
+- **状态：四文档获批后开发完成，905 测试绿（state18 基线 730 + 新增 175），新/改文件 ruff 全清；真机场景 1–10 + 汇总不合并全过（2026-10-19 收口）。**
+- 目标：主 Agent 升级为 Team Lead，创建长期小组（组/成员花名册/持久化），派生成员并行干活；成员之间通过共享任务板（带依赖）和邮箱直接协作，不经过 Lead 中转；需审批成员先交计划由 Lead 结构化批准/驳回。state20 再做独立终端后端、跨进程上下文恢复、git 合并与 coordinator 双锁。
+- **架构**：新包 `codepilot/teams/`（model/naming/settings/locks/storage/tasks/registry/mailbox/manager/runtime/prompts/tools_lead/tools_member）。四层单向依赖：领域存储层（无 UI）→ 成员运行时（复用 Agent 类，长期存活 + 内存上下文续接）→ Lead 编排层（TeamManager + 13 个 Lead 工具）→ 装配/界面（main/App/命令）。工具面隔离：base registry（普通子 Agent 用）+ lead registry（主 Agent 多出 team_*）+ 成员 registry（只多 task_*/send_message/broadcast，排除 agent/load_skill）。
+- **成员隔离**：每成员一个独立 worktree（`.codepilot/worktrees/team/<team>/<member>`，分支 `codepilot/team/<team>/<member>`）；进程内 RLock + 占用表；`WorktreeManager.release` 保留目录仅释放锁。
+- **协作**：任务板 CRUD + 领取门控（依赖全 done 才可领，原子，Lead 指派或成员抢单）；邮箱 JSONL + 名称注册表两段式投递 + 锁文件（O_EXCL 重试/过期接管）；五类消息 text/broadcast/plan_request/plan_decision/status；审批每任务一次，超时转 blocked 继续等待；消息在任务边界消费；成员 idle 后 Lead 发消息内存唤醒；重启后团队持久、成员 offline。
+- **真机暴露并修复**（4 个，均有回归测试）：
+  1. `daf3c82` 锁重入超时（update 在 team.lock 内再 acquire 非重入锁）→ 校验移锁外。
+  2. `2e3f28b` 团队事件回灌把 text 插进 tool_result 前 → 协议 400（protocol-trace R1）；Agent.run 入口补齐 dangling tool_use（R2/R3）。
+  3. `f37fd98` 空转守卫结果感知（同参数结果变=合法轮询不拦）+ Lead 待审批计划注入 volatile 块（A+C）。
+  4. `33924be` team_inbox 误标 side_effect=True 被副作用空转拦截（发两次才执行）→ 改只读。
+- **已知边界/backlog（未修，按影响排序）**：
+  1. Lead 行为漂移：信任不足时用 run/grep/read 翻团队存储/源码（场景9 撞 18 轮）。→ 提示硬约束「团队状态只用 team_* 读，禁止 read/run 访问 ~/.config/codepilot/teams」。
+  2. 时序竞态：Lead 查收件箱时成员计划未到 → 过早下结论「计划没提交」（事件晚于 Lead 结论）。
+  3. state20 候选：独立终端后端、跨进程上下文恢复、git 合并/冲突回滚、coordinator 双锁。
+  4. 跨进程 worktree 锁；Skill/Hook 共享（state17 延续）。
+- 文件：`codepilot/teams/*`（14 模块）、`agent.py`（结果感知 stall + _SideStall + sanitize）、`ui/app.py`（_append_context_notice + 团队事件回灌）、`main.py`（base/lead registry 装配 + shutdown）、`commands/builtins.py`（/team）、`mcp/manager.py`（extra_registries）、`tools/registry.py`（clone）、`worktree/manager.py`（release）、15 个测试文件。
+- 验收记录与可粘贴提示词清单见 `docs/state19-team/checklist.md` 底部。
+- 新上手：读本文 + `docs/state19-team/{spec,plan,task,checklist}.md` + `codepilot/teams/` 即可恢复。
 
 ### state18（开发完成 + 真机验收通过）
 **state18：Worktree 工作目录隔离**（`docs/state18-worktree/`）
@@ -47,17 +68,20 @@
 
 ### 下一步（待用户确认，勿提前开工）
 - **阶段目标：待定**（用户将在新会话指定）。
-- state18 明确不做、可作为后续候选：
-  1. Worktree 合并策略（merge/rebase/cherry-pick）与跨 worktree 代码同步。
-  2. 多 Agent 并行编排/调度与冲突解决。
-  3. 跨会话后台任务持久化、跨进程 worktree 占用锁。
-- 既有已知问题候选：
-  1. 修复 Anthropic 流式 usage 解析（`message_start` input/cache + `message_delta` output；补测试）。
-  2. 子 Agent 禁用/隔离 `load_skill`（多层防线补一条；评估是否共享 SkillManager）。
-  3. `manager.cancel` 真正取消 asyncio task（保存 task handle；明确取消语义）。
-  4. 插件级角色源（`subagents/loader.py discover_role_dirs` 已留位置）。
-- 入口文件：`SHARED_PROGRESS.md` → `docs/state18-worktree/` → `codepilot/worktree/`、`codepilot/subagents/isolation.py`；装配入口 `codepilot/main.py`；TUI 观察入口 `codepilot/ui/screens/subagent_screen.py`。
-- 注意事项：新功能仍走 design-first（spec→plan→task→checklist 获批再写码）；`config.yaml`/`.hooks.yaml`/`.agents` 等为 gitignore 运行时配置，勿提交；全量测试基线 **730**，`ruff check .` 既有 27 告警不得新增；验收遗留的测试 worktree 与 `codepilot/*` 分支已提示用户清理。
+- state19 明确不做、可作为后续候选（对应「两阶段切分」的 state20）：
+  1. 独立终端窗格后端 + 窗格唤醒（成员强隔离；环境优先级自动选择，不静默降级）。
+  2. 成员上下文跨进程从磁盘恢复（state19 只做进程内内存续接）。
+  3. Lead 收口：git 合并/冲突解决/回滚上报；coordinator 双锁（配置能力开关 + 环境变量）与写文件工具剥夺。
+- state19 backlog（不阻塞验收，见 state19 区块）：
+  1. Lead 行为漂移（翻文件）→ 提示硬约束。
+  2. 时序竞态（事件晚于 Lead 结论）→ 待审批提示刷新。
+- 既有已知问题候选（跨 state 通用）：
+  1. Anthropic 流式 usage 解析（`message_start` input/cache + `message_delta` output）。
+  2. 子 Agent 禁用/隔离 `load_skill`。
+  3. `manager.cancel` 真正取消 asyncio task。
+  4. 插件级角色源。
+- 入口文件：`SHARED_PROGRESS.md` → `docs/state19-team/` → `codepilot/teams/`（装配入口 `codepilot/main.py`；工具面 `teams/tools_lead.py`/`tools_member.py`）。
+- 注意事项：新功能仍走 design-first（spec→plan→task→checklist 获批再写码）；`config.yaml`/`.hooks.yaml`/`.agents` 等为 gitignore 运行时配置，勿提交；全量测试基线 **905**，`ruff check .` 既有 27 告警不得新增；验收遗留的 worktree 与 `codepilot/*` 分支已清理（2026-10-19）。
 
 ### state16（开发完成 + 真机验收通过）
 **state16：Hook 系统**（`docs/state16-hook-system/`）
