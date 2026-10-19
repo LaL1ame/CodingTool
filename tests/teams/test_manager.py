@@ -241,6 +241,27 @@ async def test_status_and_decision_flow(
     await mgr.shutdown()
 
 
+async def test_plan_request_event_kind(
+    settings: TeamSettings, tmp_path: Path,
+):
+    """Backlog2/方案A：plan_request 事件带专门 kind，区别于普通 message。"""
+    worktree = FakeWorktree(tmp_path / "wt")
+    mgr = _manager(settings, tmp_path, worktree)
+    mgr.create_team("alpha")
+    mgr.registry().add_member(_member(tmp_path, "alice"))
+    events = []
+    mgr.set_on_event(events.append)
+    task = mgr.create_task(title="A", assignee="alice")
+    mgr.send(
+        sender="alice", recipient="lead", type="plan_request",
+        body="plan", task_id=task.id)
+    pr = [e for e in events if e.kind == "plan_request"]
+    assert len(pr) == 1 and pr[0].task_id == task.id
+    assert all(e.kind == "message"
+               for e in events if e.kind != "plan_request")
+    await mgr.shutdown()
+
+
 async def test_lead_tools_are_built(settings: TeamSettings, tmp_path: Path):
     worktree = FakeWorktree(tmp_path / "wt")
     mgr = _manager(settings, tmp_path, worktree)

@@ -567,9 +567,16 @@ class TeamManager:
         if msg_type is TeamMessageType.PLAN_REQUEST and message.task_id is not None:
             self._pending_approvals[message.task_id] = sender
         if recipient == MEMBER_NAME_RESERVED:
+            # Backlog2/方案A：plan_request 事件带专门 kind，让 Lead 界面给聚焦指令
+            # （区别于普通 message/status），并配合 C 方案让 Lead 下一轮必然感知。
+            if msg_type is TeamMessageType.PLAN_REQUEST:
+                kind = "plan_request"
+            elif msg_type is TeamMessageType.STATUS:
+                kind = "status"
+            else:
+                kind = "message"
             self._emit(TeamEvent(
-                kind=("status" if msg_type is TeamMessageType.STATUS
-                      else "message"),
+                kind=kind,
                 member=sender, task_id=message.task_id,
                 summary=message.summary,
                 mailbox_path=target.mailbox_path))

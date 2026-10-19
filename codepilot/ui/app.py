@@ -293,10 +293,19 @@ class CodePilotApp(App):
                     f"\n[dim]{escape(line)}[/dim]")
             except NoMatches:
                 pass
-            content = (
-                f"【团队事件】{event.member}（{event.kind}）{task}："
-                f"{event.summary}\n"
-                "请用 team_inbox 读取未读消息全文；需要审批时用 team_decide。")
+            if event.kind == "plan_request":
+                # Backlog2/方案A：专门指令，压住「事件晚于 Lead 结论」竞态——
+                # Lead 若已下『计划未提交』，下一轮以此为准修正。
+                content = (
+                    f"【新待审批计划】成员 {event.member} 已提交任务 {task} 的计划。\n"
+                    "请用 team_inbox 读取该 plan_request 全文，再用 team_decide 决定。"
+                    "若你此前判断过该任务『计划未提交/尚未到达』，请以 team_inbox "
+                    "最新结果为准修正结论，不要重复下旧结论。")
+            else:
+                content = (
+                    f"【团队事件】{event.member}（{event.kind}）{task}："
+                    f"{event.summary}\n"
+                    "请用 team_inbox 读取未读消息全文；需要审批时用 team_decide。")
             if self._streaming:
                 self._pending_team.append(content)
             else:

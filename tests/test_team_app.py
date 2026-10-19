@@ -44,9 +44,9 @@ def _app(delay=0.0):
     return CodePilotApp(agent, team_manager=manager), manager
 
 
-def _event(summary="alice 发来 plan_request，任务 #1"):
+def _event(summary="alice 发来 plan_request，任务 #1", kind="message"):
     return TeamEvent(
-        kind="message", member="alice", task_id=1, summary=summary)
+        kind=kind, member="alice", task_id=1, summary=summary)
 
 
 async def test_team_event_idle_appends_to_context():
@@ -86,3 +86,17 @@ async def test_team_manager_reachable_from_command_context():
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause(0.05)
         assert app.command_ctx.team_manager is manager
+
+
+async def test_plan_request_event_gives_focused_instruction():
+    """Backlog2/方案A：plan_request 事件回灌必须含聚焦指令与旧结论修正。"""
+    app, manager = _app()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause(0.1)
+        app._on_team_event(_event(kind="plan_request"))
+        joined = "\n".join(
+            str(m.get("content")) for m in app._chat._msgs)
+        assert "新待审批计划" in joined
+        assert "task=#1" in joined or "任务 #1" in joined
+        assert "team_inbox" in joined and "team_decide" in joined
+        assert "修正" in joined
