@@ -80,6 +80,12 @@ def test_tool_set(setup):
     assert set(tools) == LEAD_TOOL_NAMES
 
 
+def test_inbox_is_read_only(setup):
+    """team_inbox 只读(幂等消费未读)：避免被 _SideStall 当副作用重放拦截。"""
+    _, tools, _ = setup
+    assert tools["team_inbox"].side_effect is False
+
+
 async def test_team_create_list_use_show(setup):
     mgr, tools, _ = setup
     created = await tools["team_create"].execute(name="alpha")

@@ -206,8 +206,10 @@ class TeamDecideTool(_LeadTool):
 
 class TeamInboxTool(_LeadTool):
     name = "team_inbox"
+    # 只读语义：仅消费未读（幂等标记已读），对外无副作用；重复读取无害。
+    # 若标 side_effect=True 会被 state19 A·N2 的 _SideStall 当成副作用重放拦截，
+    # 导致 Lead 连续查收件箱需发两次才执行（真机验收暴露）。
     description = "读取 Lead 邮箱中的未读消息（标记为已读）。"
-    side_effect = True
     parameters = {
         "type": "object",
         "properties": {"limit": {"type": "integer"}},
