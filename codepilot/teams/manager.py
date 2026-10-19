@@ -43,7 +43,11 @@ from codepilot.teams.naming import (
     validate_member_name,
     validate_team_name,
 )
-from codepilot.teams.prompts import lead_context_block, member_context_block
+from codepilot.teams.prompts import (
+    lead_context_block,
+    member_context_block,
+    pending_approvals_block,
+)
 from codepilot.teams.registry import MemberRegistry
 from codepilot.teams.runtime import (
     MemberPhase,
@@ -668,7 +672,30 @@ class TeamManager:
             counts = self.task_counts()
         except Exception:  # noqa: BLE001
             members, counts = [], {}
-        return lead_context_block(self._team_meta, members, counts)
+        block = lead_context_block(self._team_meta, members, counts)
+        pending = self._pending_plan_summaries()
+        if pending:
+            block = f"{block}\n\n{pending_approvals_block(pending)}"
+        return block
+
+    def _pending_plan_summaries(self) -> list[tuple[int, str, str]]:
+        """当前等待审批的计划摘要：(task_id, member, summary)（设计补充 C）。"""
+        if not self._pending_approvals:
+            return []
+        try:
+            box = self._mailbox(MEMBER_NAME_RESERVED)
+            messages = box.peek()
+        except Exception:  # noqa: BLE001 - 注入失败不影响主流程
+            return []
+        summaries: list[tuple[int, str, str]] = []
+        for task_id, member in sorted(self._pending_approvals.items()):
+            for msg in reversed(messages):
+                if (msg.type is TeamMessageType.PLAN_REQUEST
+                        and msg.task_id == task_id):
+                    summaries.append(
+                        (task_id, member, msg.summary or msg.body))
+                    break
+        return summaries
 
     def team_summary(self) -> str:
         if self._team_name is None or self._registry is None:

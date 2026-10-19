@@ -17,6 +17,7 @@ from codepilot.teams.prompts import (
     lead_context_block,
     member_context_block,
     message_turn_prompt,
+    pending_approvals_block,
     task_execution_prompt,
     task_planning_prompt,
 )
@@ -100,6 +101,21 @@ def test_execution_prompt_includes_messages():
     text = task_execution_prompt(_task(), unread=[msg])
     assert "请先看规范" in text and "来自 lead" in text
     assert "任务边界收到的消息" in text
+
+
+def test_pending_approvals_block():
+    text = pending_approvals_block([(4, "bob", "## 计划：写 bob-ok.txt")])
+    assert "待审批" in text
+    assert "#4" in text and "bob" in text
+    assert "team_inbox" in text and "team_decide" in text
+    assert len(text) < 400  # 截断，避免塞爆上下文
+    assert pending_approvals_block([]) == ""
+
+
+def test_pending_approvals_block_truncates_long():
+    text = pending_approvals_block([(9, "alice", "x" * 500)])
+    assert "…" in text
+    assert len(text) < 400
 
 
 def test_message_turn_prompt():

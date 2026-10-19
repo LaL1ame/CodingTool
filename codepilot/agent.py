@@ -36,27 +36,52 @@ class _StallDetector:
         self._recent: list[str] = []       # 最近窗口内的指纹序列
         self._stall_repeated = False       # 已被"硬停"判定(连续空转)
 
-    # —— 指纹(F3.4 lex 级)——
+    # —— 指纹(F3.4 结果级)——
     @staticmethod
-    def _fingerprint(tc: ToolCall) -> str:
-        # 确定性:工具名 + 参数的稳定 repr。dict 顺序无关 → 排序后 repr。
-        arg = tc.arguments
-        if isinstance(arg, dict):
-            sig = repr(sorted(arg.items(), key=lambda kv: str(kv[0])))
-        else:
-            sig = repr(arg)
-        return f"{tc.name}|{hash(sig)}"
+    def _std_sig(value: object) -> str:
+        # dict 顺序无关 → 排序后 repr；其余稳定 repr。
+        if isinstance(value, dict):
+            return repr(sorted(value.items(), key=lambda kv: str(kv[0])))
+        return repr(value)
 
-    def record(self, tool_calls: list["ToolCall"], had_text: bool) -> bool:
-        """本轮评估。返回 True=触发软 stall_hint(继续跑,非停)。"""
+    def _fingerprint(self, tc: ToolCall, result: "ToolResult") -> str:
+        # 工具名 + 参数 稳定签名 + 「原始结果」签名。结果参与指纹是判断
+        # 「真空转 vs 合法轮询」的关键：外部世界在变(结果不同)则不应判空转。
+        arg = self._std_sig(tc.arguments)
+        if result.error:
+            res_sig = f"err:{result.error}"
+        else:
+            res_sig = f"out:{self._std_sig(result.output)}"
+        return f"{tc.name}|{hash(arg)}|{hash(res_sig)}"
+
+    def record(
+        self,
+        tool_calls: list["ToolCall"],
+        results: list["ToolResult"],
+        had_text: bool = False,
+    ) -> bool:
+        """本轮评估(工具已执行、拿到原始结果后)。返回 True=触发软 stall_hint。
+
+        state19 设计补充 A：结果感知。同参数但结果变化 ⇒ 外部世界在推进(
+        Lead 轮询任务板/成员状态) ⇒ 视为合法轮询,重置进度不休;参数与结果都
+        相同 ⇒ 真死循环 ⇒ 累积并可能硬停。
+        """
         if not tool_calls or had_text:
             # 无工具调用(将 done)或有文本进展 → 有前进,不判空转
             self._reset_progress()
             return False
-        fps = [self._fingerprint(tc) for tc in tool_calls]
-        self._recent.append(tuple(fps))
-        # 窗口内:同指纹(整轮调用集合)出现次数
-        dup = sum(1 for e in self._recent if e == tuple(fps))
+        if len(results) < len(tool_calls):
+            results = [*results, *(ToolResult(call_id="", name="")
+                                   for _ in range(len(tool_calls) - len(results)))]
+        fps = [self._fingerprint(tc, res)
+               for tc, res in zip(tool_calls, results)]
+        new_key = tuple(fps)
+        # 结果与上一轮不同 → 外部世界在变 → 重置(不是空转)
+        if self._recent and self._recent[-1] != new_key:
+            self._recent.clear()
+        self._recent.append(new_key)
+        # 窗口内:同指纹(整轮调用集合)连续出现次数
+        dup = sum(1 for e in self._recent[-self._window:] if e == new_key)
         return dup >= self._repeat_k
 
     def should_stop(self) -> bool:
@@ -77,6 +102,34 @@ class _StallDetector:
         # 有前进:清空窗口,重新计时
         self._recent.clear()
         self._stall_repeated = False
+
+
+class _SideStall:
+    """state19 设计补充 A·N2：副作用工具的空转重放保护。
+
+    结果级 stall 移到执行后，会使「空转的那轮副作用调用」被真正执行才停，
+    破坏「续接不重放副作用」(N2)。故对含副作用工具的轮次，在执行前用
+    参数级指纹拦截连续重复调用 —— 副作用绝不因空转被重放一次。
+    """
+
+    def __init__(self, repeat_k: int = 2) -> None:
+        self._repeat_k = repeat_k
+        self._recent: list[tuple[str, ...]] = []
+
+    def stop_on_repeat(self, tool_calls: list["ToolCall"], had_text: bool) -> bool:
+        if had_text:
+            # 有文本解释/进展 → 不判副作用空转
+            self._recent.clear()
+            return False
+        fps = tuple(
+            f"{tc.name}|{hash(_StallDetector._std_sig(tc.arguments))}"
+            for tc in tool_calls)
+        if self._recent and self._recent[-1] == fps:
+            self._recent.append(fps)
+        else:
+            self._recent = [fps]   # 工具/参数组合变化 → 换新工作,重置
+        dup = sum(1 for e in self._recent if e == fps)
+        return dup >= self._repeat_k
 
 
 class Agent:
@@ -136,6 +189,9 @@ class Agent:
         self._stall_enabled = stall_enabled
         self._stall_msg = stall_msg
         self._stall = _StallDetector(repeat_k=stall_repeat_k, window=stall_window) if (
+            stall_enabled) else None
+        # state19 A·N2：仅处理含副作用工具的轮次，执行前拦截连续重复(防空转重放副作用)。
+        self._side_stall = _SideStall(repeat_k=stall_repeat_k) if (
             stall_enabled) else None
         self._cancel_event = asyncio.Event()
         self._tool_tasks: set[asyncio.Task] = set()
@@ -268,15 +324,10 @@ class Agent:
             # —— 连续未知工具检测（安全网）——
             names = [tc.name for tc in tool_calls]
             self._logger.info("round %d tools: %s", round_num, ", ".join(names))
-            stall_hint = False
             if any(self._registry.get(tc.name) is None for tc in tool_calls):
                 consecutive_unknown += 1
             else:
                 consecutive_unknown = 0
-                # —— state10: 空转软守卫评估本轮(F3,仅当无未知工具) ——
-                if self._stall is not None:
-                    stall_hint = self._stall.record(
-                        tool_calls, had_text=bool("".join(text_parts)))
 
             if consecutive_unknown >= self._max_unknown:
                 self._logger.warning(
@@ -289,7 +340,45 @@ class Agent:
                             error=None)  # N1:非 error,友好提示由 UI 呈现
                 return
 
+            # —— 有工具调用 → 回灌助手消息 → 执行 → 取原始结果 ——
+            # state19 A·N2：含副作用工具的轮次，执行前拦截连续重复调用(防空转重放副作用)。
+            if (self._side_stall is not None
+                    and any(self._is_side_effect(tc) for tc in tool_calls)
+                    and self._side_stall.stop_on_repeat(
+                        tool_calls, had_text=bool("".join(text_parts)))):
+                self._logger.warning(
+                    "round %d side-effect repeat halt (防空转重放副作用)",
+                    round_num)
+                await self._emit_stop("stall")
+                yield Delta(paused=True, pause_reason="stall",
+                            resume_round=round_num, max_rounds=self._max_rounds)
+                return
+            self._append_assistant(messages, "".join(text_parts), tool_calls)
+            raw_results = await self._execute_batched(tool_calls)
+            # state19 设计补充 A：空转评估移到执行后、拿到原始结果时(结果感知)。
+            # 用 prep/offload 之前的 raw_results 做指纹,避免层1替身恒定导致误判。
+            stall_hint = False
+            if self._stall is not None:
+                stall_hint = self._stall.record(
+                    tool_calls, raw_results,
+                    had_text=bool("".join(text_parts)))
+
+            # 层1:可选注入 context_manager 时,对每个工具结果做阈值存盘(替身回灌)
+            if self._context_manager is not None:
+                results = [await self._context_manager.prep_tool_result(r)
+                           for r in raw_results]
+            else:
+                results = raw_results
+            for r in results:
+                if r.error:
+                    self._logger.error("  tool %s error: %s", r.name, r.error)
+                else:
+                    self._logger.info("  tool %s ok: %s", r.name, (r.output or "")[:80])
+                yield Delta(tool_result=r)
+            self._append_tool_results(messages, results)
+
             # —— state10: 空转软提示(仍继续跑)→ 持续空转则硬停 ——
+            # 放在 append_tool_results 之后:即使硬停,本轮结果也已回灌,不成 dangling。
             if stall_hint:
                 self._logger.warning("round %d stall-hint: repeated no-progress", round_num)
                 yield Delta(stall_hint=self._stall_msg, round=round_num,
@@ -300,20 +389,6 @@ class Agent:
                 yield Delta(paused=True, pause_reason="stall",
                             resume_round=round_num, max_rounds=self._max_rounds)
                 return
-
-            # —— 有工具调用 → 回灌助手消息 → 执行 → 回灌结果 → 下一轮 ——
-            self._append_assistant(messages, "".join(text_parts), tool_calls)
-            results = await self._execute_batched(tool_calls)
-            # 层1:可选注入 context_manager 时,对每个工具结果做阈值存盘(替身回灌)
-            if self._context_manager is not None:
-                results = [await self._context_manager.prep_tool_result(r) for r in results]
-            for r in results:
-                if r.error:
-                    self._logger.error("  tool %s error: %s", r.name, r.error)
-                else:
-                    self._logger.info("  tool %s ok: %s", r.name, (r.output or "")[:80])
-                yield Delta(tool_result=r)
-            self._append_tool_results(messages, results)
 
             if self._cancel_event.is_set():
                 self._logger.info("round %d cancelled after batch (user)", round_num)

@@ -54,6 +54,25 @@ def lead_context_block(
     return "\n".join(lines)
 
 
+def pending_approvals_block(items: list[tuple[int, str, str]]) -> str:
+    """Lead volatile 块：列出等待审批的计划摘要（state19 设计补充 C）。
+
+    `items`: (task_id, member, plan_summary)。让 Lead 直接看到每份待审批计划
+    在哪、内容概要，避免它靠 team_task_list 兜圈去找，从而触发空转误判。
+    """
+    if not items:
+        return ""
+    lines = ["## 待审批计划", "以下成员正等待你的 team_decide 决定："]
+    for task_id, member, summary in items:
+        head = " ".join(summary.split())
+        if len(head) > 200:
+            head = head[:200] + "…"
+        lines.append(f"- 任务 #{task_id}（{member}）等待审批：{head}")
+    lines.append(
+        "需看计划全文用 team_inbox 读对应 plan_request，批准用 team_decide。")
+    return "\n".join(lines)
+
+
 def member_context_block(
     team: TeamMeta,
     member: TeamMember,

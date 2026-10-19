@@ -721,3 +721,24 @@ tests/teams/                          （新建）
 5. **成员系统工具收窄**：成员 registry 显式排除 `agent` 与 `load_skill`；MCP 工具保留。
 6. **测试新增文件**：`tests/test_team_app.py`、`tests/teams/test_wiring.py`、
    `tests/teams/test_model.py`、`tests/teams/test_prompts.py`。
+
+## 设计补充（2026-10-19）：空转守卫与 Team Lead 对冲
+
+真机验收暴露：Lead 等待成员异步事件时反复 `team_task_list/team_show`（轮询外部状态、
+无文本产出），被 state10 空转守卫（`_StallDetector` 参数级指纹）误判为死循环硬停，
+打断审批流程。设计与使用对冲（CLAUDE.md 第七原则）。采用 A + C 两处修复：
+
+- **A. 空转判定升级为「结果感知」**（`agent.py`）
+  - 现：`_StallDetector._fingerprint(tc)` 只取 工具名 + 参数 hash；评估在工具**执行前**。
+  - 改：指纹追加本轮原始 `ToolResult` 的 output/error hash；评估移到 `_execute_batched`
+    **之后**。同参数但结果在变（外部世界推进）→ `_reset_progress()`，视为合法轮询不休；
+    参数与结果都相同（真死循环）→ 保留 hint → `should_stop` 硬停。
+  - 顺序保证：必须先 `_append_tool_results` 再 `yield paused(stall)`，否则 dangling tool_use
+    破坏协议（protocol-trace R2）。指纹用 prep/offload **之前**的原始结果，避免替身恒定误判。
+  - 对普通 Agent 也更准：`grep` 两次命中不同文件 = 结果变 = 有进展。
+  - 向后兼容：`_SlowTool` 结果恒定，既有 `TestStallDetection` 两用例在新语义下仍成立。
+- **C. Lead 待审批计划注入 volatile 块**（`prompts.py` + `manager.py`）
+  - 有 `pending_approvals` 时，`TeamManager.lead_context()` 追加「待审批」块，逐条给
+    任务 #、成员、`plan_request` 摘要（截断），并提示全文用 `team_inbox`、批准用 `team_decide`。
+  - 让 Lead 一眼看到计划在哪，不必靠 `team_task_list` 兜圈去找——消除这轮空转的诱因，
+    与 A 互补（A 治误判，C 治没路可走）。

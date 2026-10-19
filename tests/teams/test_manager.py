@@ -231,6 +231,9 @@ async def test_status_and_decision_flow(
         sender="alice", recipient="lead", type="plan_request",
         body="plan", task_id=task.id)
     assert task.id in mgr._pending_approvals
+    # 设计补充 C：有待审批时，Lead 上下文注入计划摘要。
+    ctx = mgr.lead_context()
+    assert "待审批计划" in ctx and f"#{task.id}" in ctx
     decision = mgr.decide(task_id=task.id, approved=True, reason="ok")
     assert decision.approved is True
     assert task.id not in mgr._pending_approvals
