@@ -191,6 +191,10 @@ class Agent:
 
     async def run(self, messages: list[dict]) -> AsyncIterator[Delta]:
         self._cancel_event.clear()  # 重置取消标志，确保新循环不受上次取消影响
+        # protocol-trace R2/R3：发请求前清洗历史。端到端流程里 assistant 与
+        # tool_result 总是成对追加，唯一破裂点是用户取消（Esc）留下 dangling
+        # tool_use，或 resume 恢复的损坏历史 —— 补齐「已取消」结果即恢复配对。
+        self._sanitize_tail(messages)
         tools = self._build_tools()
         consecutive_unknown = 0
 
@@ -365,6 +369,66 @@ class Agent:
                 "tool_post",
                 {"tool": tc.name, **dict(tc.arguments), "ok": result.error is None})
         return result
+
+    @staticmethod
+    def _assistant_tool_ids(msg: dict, protocol: str) -> list[str]:
+        """取一条 assistant 消息里的工具调用 id（按协议形态）。"""
+        if protocol == "anthropic":
+            content = msg.get("content")
+            if isinstance(content, list):
+                return [b.get("id") for b in content
+                        if isinstance(b, dict) and b.get("type") == "tool_use"]
+            return []
+        calls = msg.get("tool_calls")
+        if isinstance(calls, list):
+            return [c.get("id") for c in calls if isinstance(c, dict)]
+        return []
+
+    @staticmethod
+    def _collect_pair_ids(messages: list[dict], after: int, protocol: str) -> set[str]:
+        """收集紧随 `after` 之后、与 assistant tool_use 配对的 tool_result id。
+
+        anthropic：下一条 user 消息里的 tool_result.tool_use_id 集合。
+        openai：`after` 起连续 role=tool 消息的 tool_call_id 集合。
+        """
+        j = after
+        got: set[str] = set()
+        if protocol == "anthropic":
+            if j < len(messages) and messages[j].get("role") == "user":
+                content = messages[j].get("content")
+                if isinstance(content, list):
+                    for b in content:
+                        if (isinstance(b, dict) and b.get("type") == "tool_result"
+                                and b.get("tool_use_id")):
+                            got.add(b["tool_use_id"])
+            return got
+        while j < len(messages) and messages[j].get("role") == "tool":
+            cid = messages[j].get("tool_call_id")
+            if cid:
+                got.add(cid)
+            j += 1
+        return got
+
+    def _sanitize_tail(self, messages: list[dict]) -> None:
+        """兜底：末尾 assistant 的 tool_use/tool_calls 缺紧随 tool_result 时补齐。"""
+        i = len(messages) - 1
+        while i >= 0:
+            if messages[i].get("role") != "assistant":
+                i -= 1
+                continue
+            ids = self._assistant_tool_ids(messages[i], self._protocol)
+            if ids:
+                got = self._collect_pair_ids(messages, i + 1, self._protocol)
+                missing = [cid for cid in ids if cid not in got]
+                if missing:
+                    self._logger.warning(
+                        "清洗历史：为 %d 个 dangling tool_use 补齐已取消结果",
+                        len(missing))
+                    self._append_tool_results(messages, [
+                        ToolResult(call_id=cid, name="", error="已取消")
+                        for cid in missing])
+            break
+        return
 
     async def _execute_batched(self, tool_calls: list[ToolCall]) -> list[ToolResult]:
         """按安全性分批：副作用工具为「栅栏」（串行），栅栏间的只读工具并发。"""

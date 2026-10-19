@@ -53,13 +53,15 @@ def test_merge_into_existing_user_str():
     assert msgs[0]["content"] == "已有\n\n摘要"
 
 
-def test_merge_into_existing_user_blocks():
+def test_merge_into_existing_user_blocks_creates_new_message():
+    """protocol-trace R1：末条 user 承载 tool_result 时，摘要必须另起新 user，
+    绝不把 text 插进 tool_result 块前（否则破坏协议配对）。"""
     msgs = [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "x", "content": "r"}]}]
     app = _app(msgs)
     app._append_subagent_summary("摘要")
-    assert len(msgs) == 1
-    assert msgs[0]["content"][0] == {"type": "text", "text": "摘要"}
-    assert msgs[0]["content"][1]["type"] == "tool_result"
+    assert len(msgs) == 2
+    assert msgs[0]["content"][0]["type"] == "tool_result"  # 原消息未被改动
+    assert msgs[1] == {"role": "user", "content": "摘要"}
 
 
 def test_done_while_streaming_queues():

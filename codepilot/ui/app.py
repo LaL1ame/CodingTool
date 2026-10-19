@@ -51,6 +51,43 @@ CAT = r"""
 VERSION = "0.2.0"
 
 
+def _is_context_mergeable(msg) -> bool:
+    """末条 user 消息能否并入通知文本。
+
+    protocol-trace R1：助手 tool_use 必须紧跟 tool_result。若末条 user 消息
+    content 是列表且含 tool_result 块（anthropic），或 role 是 tool（openai），
+    把 text 合并进去会破坏顺序 → 只允许纯文本 user 合并，其余一律另起新消息。
+    """
+    if not isinstance(msg, dict):
+        return False
+    if msg.get("role") == "tool":
+        return False
+    if msg.get("role") != "user":
+        return False
+    c = msg.get("content")
+    if isinstance(c, list):
+        return not any(
+            isinstance(b, dict) and b.get("type") == "tool_result" for b in c)
+    return True
+
+
+def _append_context_notice(msgs: list[dict], content: str) -> None:
+    """把一段通知文本安全并入对话上下文。
+
+    仅当末条是纯文本 user 时合并（避免连续同角色）；末条承载工具结果
+    （tool_result / role=tool）时，另起一条新 user 消息，绝不错位插入。
+    """
+    if msgs and _is_context_mergeable(msgs[-1]):
+        last = msgs[-1]
+        c = last.get("content")
+        if isinstance(c, list):
+            last["content"] = [*c, {"type": "text", "text": content}]
+        else:
+            last["content"] = (c or "") + "\n\n" + content
+    else:
+        msgs.append({"role": "user", "content": content})
+
+
 class CodePilotApp(App):
     BINDINGS = [("ctrl+c", "quit", "退出"), ("escape", "cancel_loop", "取消"),
                 ("f2", "cycle_release", "切换模式"),
@@ -239,19 +276,10 @@ class CodePilotApp(App):
             _log.warning("subagent done 写屏失败: %s", e)
 
     def _append_subagent_summary(self, content: str) -> None:
-        """把子任务摘要并入主对话上下文；若末条已是 user 则合并，避免连续同角色。"""
+        """把子任务摘要并入主对话上下文（协议安全，见 _append_context_notice）。"""
         if self._chat is None:
             return
-        msgs = self._chat._msgs
-        if msgs and msgs[-1].get("role") == "user":
-            last = msgs[-1]
-            c = last.get("content")
-            if isinstance(c, list):
-                last["content"] = [{"type": "text", "text": content}, *c]
-            else:
-                last["content"] = (c or "") + "\n\n" + content
-        else:
-            msgs.append({"role": "user", "content": content})
+        _append_context_notice(self._chat._msgs, content)
 
     # —— state19: 团队事件回灌 ——
     def _on_team_event(self, event) -> None:
@@ -279,16 +307,7 @@ class CodePilotApp(App):
     def _append_team_notice(self, content: str) -> None:
         if self._chat is None:
             return
-        msgs = self._chat._msgs
-        if msgs and msgs[-1].get("role") == "user":
-            last = msgs[-1]
-            c = last.get("content")
-            if isinstance(c, list):
-                last["content"] = [{"type": "text", "text": content}, *c]
-            else:
-                last["content"] = (c or "") + "\n\n" + content
-        else:
-            msgs.append({"role": "user", "content": content})
+        _append_context_notice(self._chat._msgs, content)
 
     def _replay_history(self, log: ChatLog) -> None:
         """state12:恢复会话时,把上一段对话整段画回屏幕,可往上回滚。
