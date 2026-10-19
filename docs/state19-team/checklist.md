@@ -160,7 +160,8 @@
 
 ## 端到端场景（真机 / TUI）
 
-> 具体可粘贴的验收提示词在阶段五交付；此处定义场景与可观测预期。
+> 每个场景的可粘贴验收提示词见文末「真机验收提示词清单（2026-10-19）」；
+> 此处定义场景与可观测预期。
 > 真机验收前建议在 `config.yaml` 配置较短的 `team.approval_timeout_seconds`
 > 以便测试超时路径，验收后恢复默认。
 
@@ -194,6 +195,183 @@
 - [ ] **场景 10：工具面隔离。** Lead 工具列表有 `team_*` 无成员工具；成员轨迹中
   有任务/消息工具无 `team_*`；普通子 Agent（agent 工具委派）两者都无。
   （真机：成员轨迹、`/agents` 或提示检查）
+
+---
+
+## 真机验收提示词清单（2026-10-19）
+
+> 提示词可直接粘贴到 CodePilot 输入框。已内置真机修复后规避经验：
+> 需要 Lead 用文字答复时，提示词末尾加「**用文字总结，不要再调用工具**」；
+> 读成员计划/状态时明确「**只用 team_inbox/team_show/team_task_list**，
+> 不要用 read/run 访问用户目录」。
+> 场景 5（审批超时）需先在 `config.yaml` 配置
+> `team: approval_timeout_seconds: 30`，验收后恢复默认 600 并重启。
+
+### 场景 1：建组与两名成员并行
+
+**提示词：**
+```
+用团队工具创建一个名为 teamdemo 的小组，然后派生两个成员：
+alice（角色 wt-coder，免审批）和 bob（角色 wt-coder，需要审批）。
+派生后列出成员状态、工作目录和分支。读完信息后用文字总结，不要再调用工具。
+```
+
+**预计结果：**
+- `team_create` + `team_spawn`×2 成功；alice/bob 状态 idle；
+- worktree `.codepilot/worktrees/team/teamdemo/{alice,bob}` 与分支
+  `codepilot/team/teamdemo/{alice,bob}` 实际存在；
+- 主工作区无新增文件。
+（辅助：`/team show`、`git worktree list`）
+
+### 场景 2：任务依赖与抢单
+
+**提示词：**
+```
+创建任务 A：标题 alice-note，描述"在你的工作目录写 alice-note.txt，内容 hello from alice"，指派 alice。
+再创建任务 B：标题 bob-check，描述"在你的工作目录写 bob-ok.txt"，依赖 A，指派 bob。
+做完后用文字报告任务板和成员状态，不要再调用工具。
+```
+
+**预计结果：**
+- A done；B 保持 pending；bob 因依赖未完成 blocked；
+- bob 的 worktree 中无 `bob-ok.txt`；主工作区无 `alice-note.txt`。
+
+### 场景 3：审批批准
+
+**提示词（第一步）：**
+```
+唤醒 bob 继续任务 B。bob 需要审批：用 team_inbox 读取 bob 的 plan_request 全文并原样展示，
+不要自动批准。读完用文字总结。
+```
+
+**提示词（第二步）：**
+```
+批准 bob 对任务 B 的计划（team_decide）。
+```
+
+**预计结果：**
+- bob 提交 `plan_request`；Lead 收件箱读到全文；bob blocked；B 未开始、无文件写入；
+- 批准后 bob 执行；B done；`bob-ok.txt` 生成；bob idle。
+
+### 场景 4：审批驳回
+
+**提示词：**
+```
+再给 bob 指派任务 C：标题 reject-test，描述"随便写一行 reject.txt"。
+等它提交计划后用 team_decide 驳回，报告任务状态和 bob 状态。
+```
+
+**预计结果：**
+- bob 提交计划 → blocked → 驳回后 C 回 pending、assignee 清空、bob idle；
+- 无 `reject.txt`。
+
+### 场景 5：审批超时（需先配置 30 秒）
+
+**提示词（第一步）：**
+```
+给 bob 指派任务 D：标题 timeout-test，描述"写 timeout.txt"。它提交计划后不要批准，等我下一步。
+```
+
+**操作：** 等待超过 30 秒，观察 Lead 是否收到超时状态通知。
+
+**预计结果：**
+- bob blocked、D pending、Lead 收到「审批等待超时」status、无文件写入。
+
+**提示词（第二步）：**
+```
+现在批准 bob 的计划。
+```
+
+**预计结果：** 迟到批准生效，D done。
+
+### 场景 6：点对点与广播
+
+**提示词：**
+```
+让 alice 给 bob 发一条点对点消息"请保持 worktree 干净"。
+然后你向全组广播"state19 验收广播"。报告投递结果。
+```
+
+**预计结果：**
+- alice 用 `send_message`；Lead 用 `team_broadcast`；alice/bob 各收到独立副本；
+- 成员在任务边界读取；Lead 收件箱可见成员状态。
+
+### 场景 7：空闲唤醒上下文连续
+
+**提示词 A：**
+```
+给 alice 发消息：请记住暗号 ALPHA-123，然后保持空闲。不要重新派生 alice。
+```
+
+**提示词 B（等 alice 回到 idle 后再发）：**
+```
+再给 alice 发消息：暗号是什么？只回答暗号。
+```
+
+**预计结果：**
+- B 回复 `ALPHA-123`；日志无新 `spawn`（复用同一成员上下文）。
+
+### 场景 8：终止与 worktree 保留
+
+**提示词：**
+```
+终止 alice。然后检查她的 worktree 和分支是否还在，再尝试给 alice 发一条消息。
+```
+
+**预计结果：**
+- alice 状态 terminated；`git worktree list` 与 `codepilot/team/teamdemo/alice` 分支仍在；
+- 再发消息返回「已终止/不可达」类错误。
+
+### 场景 9：重启后成员离线
+
+**操作：** 退出并重启 CodePilot，执行 `/team show`。
+
+**预计结果：** teamdemo 仍在；未终止的 bob 显示 offline，alice 仍为 terminated。
+
+**提示词：**
+```
+重新派生 bob（角色 wt-coder，需要审批），问它是否记得之前的 bob-check 任务。
+```
+
+**预计结果：**
+- offline 同名成员允许重新派生；使用全新上下文、不记得旧任务；状态 idle。
+
+### 场景 10：工具面隔离
+
+**提示词（Lead）：**
+```
+列出你当前可用的团队工具；并回答你是否能直接调用 task_list 或 send_message。
+```
+
+**预计结果：** 只看到 `team_*`；明确回答「不能」。
+
+**提示词（Lead 转述给 bob）：**
+```
+请转告 bob：只回答你的工具列表中是否有 team_spawn、team_terminate。
+```
+
+**预计结果：** bob 回答「没有」。
+
+**提示词（普通子 Agent）：**
+```
+用 agent 工具委派 architect 子任务：只回答你的工具列表中是否有 team_spawn、task_list。
+```
+
+**预计结果：** architect 回答「没有」。
+
+### 附加检查：Lead 汇总不合并
+
+**提示词：**
+```
+汇总当前小组：列出每个成员的任务结果、worktree 路径、分支；
+并确认主工作区没有合并任何成员文件。读完用文字总结，不要再调用工具。
+```
+
+**预计结果：**
+- Lead 报告成员结果/状态/worktree/分支；
+- 主工作区 `git status` 干净；没有执行任何 `git merge/rebase/cherry-pick`。
+
+---
 
 ## Spec AC 覆盖对照
 
