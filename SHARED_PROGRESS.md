@@ -20,11 +20,14 @@
   2. `2e3f28b` 团队事件回灌把 text 插进 tool_result 前 → 协议 400（protocol-trace R1）；Agent.run 入口补齐 dangling tool_use（R2/R3）。
   3. `f37fd98` 空转守卫结果感知（同参数结果变=合法轮询不拦）+ Lead 待审批计划注入 volatile 块（A+C）。
   4. `33924be` team_inbox 误标 side_effect=True 被副作用空转拦截（发两次才执行）→ 改只读。
-- **已知边界/backlog（未修，按影响排序）**：
-  1. Lead 行为漂移：信任不足时用 run/grep/read 翻团队存储/源码（场景9 撞 18 轮）。→ 提示硬约束「团队状态只用 team_* 读，禁止 read/run 访问 ~/.config/codepilot/teams」。
-  2. 时序竞态：Lead 查收件箱时成员计划未到 → 过早下结论「计划没提交」（事件晚于 Lead 结论）。
-  3. state20 候选：独立终端后端、跨进程上下文恢复、git 合并/冲突回滚、coordinator 双锁。
-  4. 跨进程 worktree 锁；Skill/Hook 共享（state17 延续）。
+- **已修 backlog（2026-10-19，headless 端到端复验通过）**：
+  1. ~~Lead 行为漂移~~ `46da5c5`：lead_context 追加访问边界硬约束（团队状态只用 team_* 读，
+     禁止 read/run/grep 访问 ~/.config/codepilot/teams/ 与 codepilot/teams/ 源码）。
+  2. ~~时序竞态~~ `f9aa452`：plan_request 事件带专门 kind，回灌聚焦指令（team_inbox 读全文 +
+     以最新结果修正「计划没提交」旧结论）。
+- **已知边界/候选（未修）**：
+  1. state20 候选：独立终端后端、跨进程上下文恢复、git 合并/冲突回滚、coordinator 双锁。
+  2. 跨进程 worktree 锁；Skill/Hook 共享（state17 延续）；访问边界为提示层软约束。
 - 文件：`codepilot/teams/*`（14 模块）、`agent.py`（结果感知 stall + _SideStall + sanitize）、`ui/app.py`（_append_context_notice + 团队事件回灌）、`main.py`（base/lead registry 装配 + shutdown）、`commands/builtins.py`（/team）、`mcp/manager.py`（extra_registries）、`tools/registry.py`（clone）、`worktree/manager.py`（release）、15 个测试文件。
 - 验收记录与可粘贴提示词清单见 `docs/state19-team/checklist.md` 底部。
 - 新上手：读本文 + `docs/state19-team/{spec,plan,task,checklist}.md` + `codepilot/teams/` 即可恢复。
@@ -72,9 +75,8 @@
   1. 独立终端窗格后端 + 窗格唤醒（成员强隔离；环境优先级自动选择，不静默降级）。
   2. 成员上下文跨进程从磁盘恢复（state19 只做进程内内存续接）。
   3. Lead 收口：git 合并/冲突解决/回滚上报；coordinator 双锁（配置能力开关 + 环境变量）与写文件工具剥夺。
-- state19 backlog（不阻塞验收，见 state19 区块）：
-  1. Lead 行为漂移（翻文件）→ 提示硬约束。
-  2. 时序竞态（事件晚于 Lead 结论）→ 待审批提示刷新。
+- state19 backlog（已修，2026-10-19，见 state19 区块）：Lead 翻文件漂移 `46da5c5`；
+  时序竞态 `f9aa452`。
 - 既有已知问题候选（跨 state 通用）：
   1. Anthropic 流式 usage 解析（`message_start` input/cache + `message_delta` output）。
   2. 子 Agent 禁用/隔离 `load_skill`。

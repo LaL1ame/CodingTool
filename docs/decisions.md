@@ -6,6 +6,51 @@
 
 ---
 
+## ADR-005:Team Lead 采用「三套工具面隔离 + 成员 worktree + 结果感知空转守卫」(2026-10-19,state19)
+
+### 背景
+主 Agent 需升级为 Team Lead:创建长期小组、派生多个成员并行干活、成员之间经共享任务板
+与邮箱直接协作、需审批成员先交计划由 Lead 决定。state17 的 SubAgent 是一次性委派、结果
+经主 Agent 中转;state18 提供 worktree 隔离但无「长期团队」概念。state19 需回答几个关键
+架构问题:成员怎么隔离、协作状态怎么持久化、审批怎么闭环、以及 Lead「等待成员异步事件」
+的轮询会不会被 state10 空转守卫误杀。
+
+### 实证
+- 真机场景 1–10 + 汇总不合并全过(2026-10-19 收口);905/908 测试绿。
+- 真机暴露并修复 4 个问题,均与下列裁决相关:锁重入超时、团队事件回灌破坏协议 400、
+  空转守卫误判 Lead 轮询、`team_inbox` 误标副作用被拦截。
+- 两个遗留非功能问题(Lead 翻文件漂移、事件晚于 Lead 结论)已用提示/事件层修复。
+
+### 决策
+1. **三套工具面隔离**:base registry(核心工具,普通子 Agent 与成员共用)→ lead registry
+   (base 克隆 + 13 个 `team_*` 编排工具,仅主 Agent)→ 成员 registry(base 派生 + 8 个
+   `task_*/send_message/broadcast`,并排除 `agent`/`load_skill`)。三套互斥,从结构上保证
+   普通子 Agent 永远看不到团队工具,Fork 父工具集快照过滤团队工具。
+2. **成员 = 长期存活的 Agent 实例 + 独立 worktree**:复用现有 `Agent` 类,`_msgs` 跨任务
+   保留实现内存上下文续接;每成员一个 `.codepilot/worktrees/team/<team>/<member>` 与
+   `codepilot/team/<team>/<member>` 分支,进程内占用锁,`WorktreeManager.release` 保留目录
+   仅释放锁;重启后团队持久、成员 offline(内存上下文不跨进程)。
+3. **协作状态持久化 + 锁**:任务板/成员/邮箱按组存 `~/.config/codepilot/teams/<team>/`;
+   邮箱 JSONL + 名称注册表两段式投递;锁文件 O_EXCL + 过期接管 + 原子替换;五类结构化消息
+   (`text/broadcast/plan_request/plan_decision/status`)。
+4. **审批闭环**:需审批成员每任务先提交计划(`plan_request`),Lead 以 `plan_decision`
+   批准/驳回;等待超时转 blocked 继续等待;审批消息按 task_id 精确消费。
+5. **空转守卫结果感知(state10 升级)**:`_StallDetector` 指纹从「工具名+参数」改为
+   「工具名+参数+原始 ToolResult」;评估移到工具执行后。同参数但结果在变(外部世界推进,
+   如 Lead 轮询任务板)→ 合法轮询不拦;参数与结果都相同 → 真空转仍停。副作用工具在
+   **执行前**另用 `_SideStall` 参数级拦截连续重复,保 N2「续接不重放副作用」。
+6. **访问边界(提示层)**:Lead 上下文注入硬约束——团队状态只能用 `team_*` 读,禁止
+   read/run/grep 访问 `~/.config/codepilot/teams/`;`plan_request` 事件带专门 kind,
+   回灌聚焦指令修正「计划未提交」旧结论。
+
+### 后果
+- 成员并行改文件互不覆盖、协作不经 Lead 中转、审批可控、等待轮询不误杀。
+- 已知边界:成员为同进程协程(非真实进程隔离)、上下文不跨进程恢复、不做 git 合并/
+  coordinator(均留 state20);Skill/Hook 仍共享;访问边界是提示层软约束,非机制强隔离。
+- 详细设计与验收见 `docs/state19-team/`。
+
+---
+
 ## ADR-004:Worktree 隔离采用「仓内固定根 + 每 Agent 独立工具实例 + fail-closed」(2026-10-18,state18)
 
 ### 背景
