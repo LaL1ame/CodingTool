@@ -20,9 +20,10 @@
   2. `2e3f28b` 团队事件回灌把 text 插进 tool_result 前 → 协议 400（protocol-trace R1）；Agent.run 入口补齐 dangling tool_use（R2/R3）。
   3. `f37fd98` 空转守卫结果感知（同参数结果变=合法轮询不拦）+ Lead 待审批计划注入 volatile 块（A+C）。
   4. `33924be` team_inbox 误标 side_effect=True 被副作用空转拦截（发两次才执行）→ 改只读。
-- **已修 backlog（2026-10-19，headless 端到端复验通过）**：
-  1. ~~Lead 行为漂移~~ `46da5c5`：lead_context 追加访问边界硬约束（团队状态只用 team_* 读，
-     禁止 read/run/grep 访问 ~/.config/codepilot/teams/ 与 codepilot/teams/ 源码）。
+- **已修 backlog（2026-10-19/2026-10-23，headless 端到端复验 + 全量回归通过）**：
+  1. ~~Lead 行为漂移~~ 提示层 `46da5c5`（访问边界硬约束）+ **机制层 `ef3dd8e`**
+     （RunTool/GrepTool 注入 protected_roots = team_settings.root，run 命令含团队根绝对
+     路径 token、grep 搜索根落在团队根内直接拒绝，报错指向 team_*）。提示+机制双保险。
   2. ~~时序竞态~~ `f9aa452`：plan_request 事件带专门 kind，回灌聚焦指令（team_inbox 读全文 +
      以最新结果修正「计划没提交」旧结论）。
 - **已知边界/候选（未修）**：
@@ -75,7 +76,7 @@
   1. 独立终端窗格后端 + 窗格唤醒（成员强隔离；环境优先级自动选择，不静默降级）。
   2. 成员上下文跨进程从磁盘恢复（state19 只做进程内内存续接）。
   3. Lead 收口：git 合并/冲突解决/回滚上报；coordinator 双锁（配置能力开关 + 环境变量）与写文件工具剥夺。
-- state19 backlog（已修，2026-10-19，见 state19 区块）：Lead 翻文件漂移 `46da5c5`；
+- state19 backlog（已修，见 state19 区块）：Lead 翻文件漂移 `46da5c5`(提示)+`ef3dd8e`(机制)；
   时序竞态 `f9aa452`。
 - 既有已知问题候选（跨 state 通用）：
   1. Anthropic 流式 usage 解析（`message_start` input/cache + `message_delta` output）。
