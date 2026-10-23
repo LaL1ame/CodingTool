@@ -215,6 +215,11 @@ def main() -> None:
     except TeamSettingsError as e:
         print(f"Team configuration error: {e}", file=sys.stderr)
         sys.exit(1)
+    # Backlog1 机制层：把团队持久化根从 run/grep 可见范围硬屏蔽，杜绝 Lead 翻文件。
+    for _name in ("run", "grep"):
+        _t = registry.get(_name)
+        if _t is not None and hasattr(_t, "set_protected_roots"):
+            _t.set_protected_roots((team_settings.root,))
 
     # —— SubAgent 系统(state17):角色四级加载 + 委派中心 + 常驻 agent 工具 ——
     # 先于 Agent 构造：agent 的角色名册注入器与 registry 工具注册都依赖它。

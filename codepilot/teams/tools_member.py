@@ -253,6 +253,7 @@ def build_member_registry(
     board: "TaskBoard",
     manager: "TeamManager",
     member: str,
+    protected_roots: tuple[Path, ...] = (),
 ) -> ToolRegistry:
     """从 base registry 派生成员 registry。
 
@@ -264,8 +265,8 @@ def build_member_registry(
     registry.register(WriteTool(workspace))
     registry.register(EditTool(workspace))
     registry.register(GlobTool(workspace))
-    registry.register(GrepTool(workspace))
-    registry.register(RunTool(workspace))
+    registry.register(GrepTool(workspace, protected_roots=protected_roots))
+    registry.register(RunTool(workspace, protected_roots=protected_roots))
     for tool in base.list_all():
         if tool.name in _BOUND_TOOL_NAMES or tool.name in _EXCLUDED_SYSTEM:
             continue

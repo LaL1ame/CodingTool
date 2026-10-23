@@ -10,8 +10,27 @@ GREP_LIMIT = 250
 
 
 class GrepTool(Tool):
-    def __init__(self, workspace: Path) -> None:
+    def __init__(self, workspace: Path,
+                 protected_roots: tuple[Path, ...] = ()) -> None:
         self.workspace = workspace
+        self._protected_roots = tuple(Path(p) for p in protected_roots)
+
+    def set_protected_roots(self, roots: tuple[Path, ...]) -> None:
+        """注入受保护根（如团队持久化目录）；搜索根触及则拒绝（机制层强约束）。"""
+        self._protected_roots = tuple(Path(p) for p in roots)
+
+    def _guard_protected(self, search_root: Path) -> bool:
+        """search_root resolve 后是否落在受保护根内（如团队存储）。"""
+        if not self._protected_roots:
+            return False
+        try:
+            resolved = search_root.resolve()
+        except OSError:
+            return False
+        for root in self._protected_roots:
+            if resolved == root or resolved.is_relative_to(root):
+                return True
+        return False
 
     @property
     def name(self) -> str:
@@ -41,6 +60,13 @@ class GrepTool(Tool):
             return ToolResult(call_id="", name=self.name, error=f"无效的正则表达式: {e}")
 
         search_root = self.workspace / path
+        if self._guard_protected(search_root):
+            return ToolResult(
+                call_id="", name=self.name,
+                error=("搜索根触及受保护的团队数据目录，已拒绝："
+                       f"{path}\n团队状态/消息请用 team_* 工具读取"
+                       "（team_show / team_task_list / team_inbox），"
+                       "禁止用 grep 直接搜团队存储文件。"))
         if not search_root.exists():
             return ToolResult(call_id="", name=self.name, error=f"路径不存在: {path}")
 

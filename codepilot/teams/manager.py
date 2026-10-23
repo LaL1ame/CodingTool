@@ -439,7 +439,8 @@ class TeamManager:
         registry, board, team = self._require_team()
         phase = MemberPhase()
         tools = build_member_registry(
-            self._base_registry, handle.path, board, self, member.name)
+            self._base_registry, handle.path, board, self, member.name,
+            protected_roots=(self._settings.root,))
         provider = role_provider(self._shared, role.model)
         permission = role_permission(
             self._shared, role, workspace=handle.path)
