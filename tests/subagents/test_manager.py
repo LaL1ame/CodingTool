@@ -384,3 +384,32 @@ async def test_worktree_disabled_rejected(monkeypatch):
     mgr = _mgr(known={"r": _isolated_role()})
     res = await mgr.delegate("defined", "x", role="r")
     assert "Worktree 系统未启用" in res.error
+
+
+async def test_cancel_actually_stops_background_coroutine(monkeypatch):
+    """state19：cancel 应真正取消后台 asyncio 协程，而非只改状态。
+
+    旧实现只改 status；后台协程继续跑，完成时 _on_background_done 会覆盖回
+    done。改动后：cancel 调 task.cancel()，协程被中断，status 保持 cancelled。
+    """
+    ran_to_completion = {"v": False}
+
+    async def _never_complete(role, prompt, *, depth, shared, worktree=None):
+        try:
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            raise
+        ran_to_completion["v"] = True
+        return _result("would-be-done")
+
+    monkeypatch.setattr(manager_mod, "run_role_agent", _never_complete)
+    mgr = _mgr()
+    await mgr.delegate("defined", "x", role="r", background=True)
+    tid = mgr.tasks()[0].task_id
+    # 等协程真正启动并进入 sleep
+    await asyncio.sleep(0.05)
+    assert mgr.cancel(tid) is True
+    # 给被取消的协程一点时间收尾
+    await asyncio.sleep(0.1)
+    assert mgr.tasks()[0].status == "cancelled"
+    assert ran_to_completion["v"] is False, "后台协程未被真正取消，仍跑到了完成"

@@ -37,8 +37,9 @@ def test_whitelist_keeps_system_exempt():
     f = build_tool_filter(role=_role(tools=frozenset({"read"})), depth=0,
                           max_depth=1, background=False, inherit_plan=False)
     out = f([_T("read"), _T("run"), _T("load_skill", system_exempt=True)])
-    # 白名单含 read；load_skill 是系统工具（system_exempt）→ 保留；run 不在白名单 → 滤掉
-    assert _names(out) == {"read", "load_skill"}
+    # 白名单含 read；run 不在白名单 → 滤掉；
+    # load_skill 虽 system_exempt 但子 Agent 禁（F5 共享 SkillManager 隔离）→ 也滤掉
+    assert _names(out) == {"read"}
 
 
 def test_agent_removed_even_if_in_whitelist():
@@ -104,3 +105,11 @@ def test_fork_filter_inherits_parent_and_readonly():
     out = f([_T("read"), _T("run", side_effect=True), _T("agent"), _T("write", side_effect=True)])
     # run/write 被后台只读滤掉；agent 被禁；read 保留
     assert _names(out) == {"read"}
+
+
+def test_fork_filter_excludes_load_skill():
+    """Fork 继承父工具集快照，但 load_skill 仍被硬排除（F5 共享状态隔离）。"""
+    f = build_fork_tool_filter(frozenset({"read", "load_skill"}), background=False)
+    out = f([_T("read"), _T("load_skill", system_exempt=True)])
+    assert _names(out) == {"read"}
+    assert "load_skill" not in _names(out)

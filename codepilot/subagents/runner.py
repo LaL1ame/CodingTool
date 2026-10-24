@@ -102,6 +102,10 @@ def build_tool_filter(
             tools = [t for t in tools if t.name != "agent"]
         if background or inherit_plan:
             tools = [t for t in tools if not t.side_effect]
+        # state19: 子 Agent 禁 load_skill（F5 运行时状态隔离）。load_skill 是
+        # system_exempt（逃生门），会漏进上面的白名单保留 —— 但会改共享
+        # SkillManager 状态，故在防线最末硬排除，不随角色配置恢复。
+        tools = [t for t in tools if t.name != "load_skill"]
         return tools
 
     return _filter
@@ -117,6 +121,8 @@ def build_fork_tool_filter(
         tools = [t for t in tools if t.name != "agent"]
         if background:
             tools = [t for t in tools if not t.side_effect]
+        # state19: Fork 也禁 load_skill（共享 SkillManager 隔离，同 F5）。
+        tools = [t for t in tools if t.name != "load_skill"]
         return tools
 
     return _filter

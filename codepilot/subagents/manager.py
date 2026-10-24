@@ -69,6 +69,8 @@ class SubAgentManager:
         self._running: set[int] = set()
         # 前台等待表：task_id → (子循环 task, 转后台 marker)。/bg 设 marker 解除 await。
         self._foreground: dict[int, tuple[asyncio.Task, asyncio.Event]] = {}
+        # task_id → 实际 asyncio task 句柄（后台/前台创建时登记，供 cancel 真正取消）。
+        self._task_handles: dict[int, asyncio.Task] = {}
         self._notify = notify
         self._on_task_done = on_task_done
         self._parent_visible = parent_visible or (
@@ -227,6 +229,7 @@ class SubAgentManager:
     ) -> ToolResult:
         """前台执行：await 子循环；超时转后台（D11）；/bg 手动切（D12）。"""
         sub_task = asyncio.ensure_future(self._run_one(task, role_obj, depth))
+        self._task_handles[task.task_id] = sub_task
         marker = asyncio.Event()
         self._foreground[task.task_id] = (sub_task, marker)
         # marker 等待协程：/bg 触发 → 转后台
@@ -261,6 +264,7 @@ class SubAgentManager:
         finally:
             marker_waiter.cancel()
             self._foreground.pop(task.task_id, None)
+            self._task_handles.pop(task.task_id, None)
 
     def _spawn_background(
         self, task: SubAgentTask, role_obj, depth: int,
@@ -268,6 +272,7 @@ class SubAgentManager:
         """后台启动：create_task 执行，立即返回占位结果（F8）。"""
         self._running.add(task.task_id)
         sub_task = asyncio.ensure_future(self._run_one(task, role_obj, depth))
+        self._task_handles[task.task_id] = sub_task
         sub_task.add_done_callback(lambda _t: self._on_background_done(task, _t))
         return ToolResult(
             call_id="", name="agent",
@@ -362,6 +367,7 @@ class SubAgentManager:
     def _on_background_done(self, task: SubAgentTask, fut: asyncio.Task) -> None:
         """后台任务完成回调：记日志 + on_task_done（main 接线回灌主对话）。"""
         try:
+            self._task_handles.pop(task.task_id, None)
             if fut.cancelled():
                 self._set_status(task, "cancelled")
             self._running.discard(task.task_id)
@@ -379,13 +385,22 @@ class SubAgentManager:
 
     # —— 控制 ——
     def cancel(self, task_id: int) -> bool:
-        """取消后台任务（F10）。"""
+        """取消后台任务（F10）。
+
+        state19：真正取消 asyncio task —— 置状态为 cancelled 并从 running 摘除
+        之外，还要 cancel 实际协程（否则后台协程继续跑，完成时 _on_background_done
+        会覆盖回 done，取消不生效）。
+        """
         task = self._tasks.get(task_id)
         if task is None or task.task_id not in self._running:
             return False
+        handle = self._task_handles.get(task_id)
+        if handle is not None and not handle.done():
+            handle.cancel()
         self._set_status(task, "cancelled")
         self._running.discard(task_id)
-        logger.info("subagent #%d cancelled", task_id)
+        logger.info("subagent #%d cancelled (task.cancel=%s)",
+                    task_id, handle is not None)
         return True
 
     def background_now(self, task_id: int) -> bool:
