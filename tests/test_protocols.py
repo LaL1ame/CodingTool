@@ -98,6 +98,38 @@ class TestAnthropicToolUse:
         assert usages[0].usage.input_tokens == 42
         assert usages[0].usage.output_tokens == 7
 
+    async def test_usage_split_start_delta(self):
+        """DeepSeek 兼容端点形态：input/cache 在 message_start，output 在 message_delta。"""
+        _, deltas = await _anthropic([
+            '{"type":"message_start","message":{"usage":'
+            '{"input_tokens":100,"cache_read_input_tokens":30,'
+            '"cache_creation_input_tokens":20}}}',
+            '{"type":"content_block_delta","index":0,'
+            '"delta":{"type":"text_delta","text":"hi"}}',
+            '{"type":"message_delta","usage":{"output_tokens":7}}',
+            '{"type":"message_stop"}',
+        ])
+        usages = [d for d in deltas if d.usage]
+        assert len(usages) == 1
+        u = usages[0].usage
+        assert u.input_tokens == 100
+        assert u.output_tokens == 7
+        assert u.cache_read == 30
+        assert u.cache_creation == 20
+
+    async def test_usage_split_start_only(self):
+        """input/cache 在 start、output 缺省时，至少 input 不丢。"""
+        _, deltas = await _anthropic([
+            '{"type":"message_start","message":{"usage":'
+            '{"input_tokens":5,"cache_creation_input_tokens":2}}}',
+            '{"type":"message_stop"}',
+        ])
+        usages = [d for d in deltas if d.usage]
+        assert len(usages) == 1
+        assert usages[0].usage.input_tokens == 5
+        assert usages[0].usage.output_tokens == 0
+        assert usages[0].usage.cache_creation == 2
+
 
 class TestOpenAIToolCalls:
     async def test_single_tool_call(self):

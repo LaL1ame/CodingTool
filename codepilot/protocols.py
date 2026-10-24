@@ -133,8 +133,32 @@ class AnthropicProtocol(BaseProtocol):
             return "".join(parts)
 
     async def _stream_from_lines(self, lines: AsyncIterator[str]) -> AsyncIterator[Delta]:
-        """把 SSE 文本行流解析为 Delta 事件（与 I/O 解耦，便于测试）。"""
+        """把 SSE 文本行流解析为 Delta 事件（与 I/O 解耦，便于测试）。
+
+        usage 累积三处：
+        - `message_start` 的 `message.usage`：input_tokens / cache_read / cache_creation
+          （DeepSeek 兼容端点在此给出 input/cache）；
+        - `message_delta` 的 `usage`：output_tokens（DeepSeek 在此给出 output）；
+        - `message_stop` 的 `usage`：旧路径兜底（部分端点在此给全量）。
+        三者合并，避免 token/cache 计数静默为 0（state17 已知问题，2026-10 修）。
+        """
         tool_blocks: dict[int, dict] = {}
+        acc: dict[str, int | None | bool] = {
+            "input_tokens": None, "output_tokens": None,
+            "cache_read": None, "cache_creation": None,
+        }
+
+        def _merge(src: dict) -> None:
+            for key, ak in (
+                ("input_tokens", "input_tokens"),
+                ("output_tokens", "output_tokens"),
+                ("cache_read_input_tokens", "cache_read"),
+                ("cache_creation_input_tokens", "cache_creation"),
+            ):
+                v = src.get(key)
+                if isinstance(v, int):
+                    acc[ak] = v
+
         async for line in lines:
             if not line or line.startswith(":"):
                 continue
@@ -170,14 +194,30 @@ class AnthropicProtocol(BaseProtocol):
                 elif t == "content_block_stop":
                     pass
 
+                elif t == "message_start":
+                    # DeepSeek 兼容端点在 message_start 给出 input/cache
+                    msg = ev.get("message", {})
+                    if isinstance(msg, dict):
+                        _merge(msg.get("usage") or {})
+
+                elif t == "message_delta":
+                    # DeepSeek 兼容端点在 message_delta 给出 output
+                    u = ev.get("usage")
+                    if isinstance(u, dict):
+                        _merge(u)
+
                 elif t == "message_stop":
-                    usage = ev.get("usage")
-                    if usage:
+                    # 旧路径兜底：部分端点在 message_stop 给全量 usage
+                    stop_usage = ev.get("usage")
+                    if isinstance(stop_usage, dict):
+                        _merge(stop_usage)
+                    if (acc["input_tokens"] is not None
+                            or acc["output_tokens"] is not None):
                         yield Delta(usage=Usage(
-                            input_tokens=usage.get("input_tokens", 0),
-                            output_tokens=usage.get("output_tokens", 0),
-                            cache_read=usage.get("cache_read_input_tokens"),
-                            cache_creation=usage.get("cache_creation_input_tokens"),
+                            input_tokens=acc["input_tokens"] or 0,
+                            output_tokens=acc["output_tokens"] or 0,
+                            cache_read=acc["cache_read"],
+                            cache_creation=acc["cache_creation"],
                         ))
                     if tool_blocks:
                         calls = []
