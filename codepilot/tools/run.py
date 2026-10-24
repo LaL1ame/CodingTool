@@ -1,16 +1,13 @@
 """执行命令工具 — 带用户确认的 Shell 命令执行。"""
 
 import asyncio
-import re
+import os
 from pathlib import Path
 
 from codepilot.protocols import ToolResult
 from codepilot.tools.base import Tool
 
 OUTPUT_LIMIT = 8000
-
-# 命令 token 里的绝对路径/家目录开头的片段（如 C:\... 或 ~/.config/...）
-_PATH_TOKEN_RE = re.compile(r"([A-Za-z]:[\\/]|~[/\\])")
 
 
 class RunTool(Tool):
@@ -27,21 +24,26 @@ class RunTool(Tool):
     def _guard_protected(self, command: str) -> None:
         """命令若显式触及受保护根（如团队存储）则拒绝，引导用 team_* 工具。
 
-        命令是字符串，无法可靠解析 shell 语义；用「绝对路径/家目录开头 token」
-        启发式检测，拦下 `type C:\\...\\teams\\...` 这类显式翻文件（真机暴露）。
+        命令是字符串，无法可靠解析 shell 语义；用「绝对路径 token」启发式检测，
+        拦下 `type C:\\...\\teams\\...` / `cat ~/.config/...` / `cat /tmp/...teams/...`
+        这类显式翻文件（真机暴露）。`expanduser` 处理 `~`；`is_absolute` 同时覆盖
+        Windows 盘符与 POSIX `/`。
         """
         if not self._protected_roots:
             return
         for tok in command.split():
             clean = tok.strip("\"'`")
-            if not clean or not _PATH_TOKEN_RE.search(clean):
+            if not clean:
+                continue
+            cand = Path(os.path.expanduser(clean))
+            if not cand.is_absolute():
                 continue  # 相对路径在 cwd 内，不可能是用户目录团队数据
             try:
-                cand = Path(clean).expanduser().resolve()
+                resolved = cand.resolve()
             except (OSError, ValueError):
                 continue
             for root in self._protected_roots:
-                if cand == root or cand.is_relative_to(root):
+                if resolved == root or resolved.is_relative_to(root):
                     raise ValueError(
                         "命令触及受保护的团队数据目录，已拒绝执行："
                         f"{clean}\n团队状态/消息请用 team_* 工具读取"

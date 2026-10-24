@@ -23,12 +23,15 @@ async def test_run_rejects_absolute_team_path(tmp_path):
     assert "team_*" in result.error
 
 
-async def test_run_rejects_home_style_path(tmp_path):
-    ws, team = _tmp_roots(tmp_path)
+async def test_run_rejects_home_style_path():
+    """~/.config/codepilot/teams 形态的 token（受保护根位于真实 home 下）。"""
+    from pathlib import Path
+
+    team = Path.home() / ".config" / "codepilot" / "teams"
+    ws = Path.cwd()
     tool = RunTool(ws, protected_roots=(team,))
-    target = team / "tasks.json"
-    # ~/.config/codepilot/teams 形态的 token
-    result = await tool.execute(command=f"cat ~/{target}")
+    result = await tool.execute(
+        command="cat ~/.config/codepilot/teams/tasks.json")
     assert result.error and "团队数据" in result.error
 
 
