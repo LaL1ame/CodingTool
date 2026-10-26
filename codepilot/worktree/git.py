@@ -121,3 +121,42 @@ class GitRunner:
         """启用 worktreeConfig 并写入 worktree 级配置。"""
         self.run(["config", "extensions.worktreeConfig", "true"])
         self.run(["config", "--worktree", key, value], cwd=path)
+
+    # —— 合并（state20 A3）——
+
+    def add(self, path: Path, *paths: str) -> None:
+        """暂存 path 工作区下的文件（缺省全部）。"""
+        self.run(["add", "--", *paths] if paths else ["add", "."], cwd=path)
+
+    def commit(self, path: Path, message: str) -> None:
+        """在 path 工作区提交（需已 add）。"""
+        self.run(["commit", "-m", message], cwd=path)
+
+    def checkout_branch(self, path: Path, branch: str) -> None:
+        """创建并切换到新分支（-b）；分支已存在时失败。"""
+        self.run(["checkout", "-b", branch], cwd=path)
+
+    def merge(self, path: Path, branch: str) -> bool:
+        """把 branch 合并进 path 当前分支；返回是否有冲突。
+
+        冲突时 `git merge` 退出码非 0（且工作区留有冲突标记），这里只负责
+        报告冲突与否，不处理合并结果 —— 由调用方决定 abort。
+        """
+        cp = self._run(["merge", branch], cwd=path, check=False)
+        return cp.returncode != 0
+
+    def abort_merge(self, path: Path) -> None:
+        """放弃进行中的合并，回到尝试前状态。"""
+        self.run(["merge", "--abort"], cwd=path)
+
+    def diff_names(self, path: Path, base: str) -> tuple[str, ...]:
+        """base 与当前 HEAD 之间变更的文件名（冲突报告用）。"""
+        cp = self._run(
+            ["diff", "--name-only", f"{base}...HEAD"], cwd=path, check=False)
+        if cp.returncode != 0:
+            return ()
+        return tuple(n for n in cp.stdout.splitlines() if n)
+
+    def branch_created(self, branch: str) -> bool:
+        """分支是否已存在（与 branch_exists 等价，语义更贴合并场景）。"""
+        return self.branch_exists(branch)
