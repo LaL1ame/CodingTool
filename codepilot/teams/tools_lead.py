@@ -17,7 +17,7 @@ LEAD_TOOL_NAMES = frozenset({
     "team_create", "team_list", "team_use", "team_show",
     "team_spawn", "team_terminate", "team_send", "team_broadcast",
     "team_decide", "team_inbox", "team_task_create", "team_task_update",
-    "team_task_list",
+    "team_task_list", "team_merge",
 })
 
 
@@ -308,6 +308,36 @@ class TeamTaskListTool(_LeadTool):
             for t in tasks)
 
 
+class TeamMergeTool(_LeadTool):
+    name = "team_merge"
+    description = (
+        "把成员 worktree 的改动合并到汇聚分支 codepilot/team/<team>/merged。"
+        "先提交各成员改动到其分支，再 merge；有冲突则整体回滚并上报冲突文件。"
+        "缺省合并当前组所有可合并成员，可指定 members。")
+    side_effect = True
+    parameters = {
+        "type": "object",
+        "properties": {
+            "members": {
+                "type": "array", "items": {"type": "string"},
+                "description": "要合并的成员名（缺省=当前组所有可合并成员）",
+            },
+        },
+    }
+
+    async def _run(self, **kwargs) -> str:
+        result = await self._manager.merge_team(members=kwargs.get("members"))
+        if not result.ok:
+            if result.conflict_files:
+                return (f"合并冲突，已回滚：{result.target}\n"
+                        f"冲突文件：{', '.join(result.conflict_files)}\n"
+                        f"已合入：{', '.join(result.merged_members) or '无'}")
+            return f"合并失败：{result.error}"
+        return (f"合并成功（{result.target}）\n"
+                f"合入成员：{', '.join(result.merged_members) or '无'}\n"
+                f"本次提交：{', '.join(result.committed_members) or '无'}")
+
+
 def build_lead_tools(manager: "TeamManager") -> list[Tool]:
     return [
         TeamCreateTool(manager),
@@ -323,4 +353,5 @@ def build_lead_tools(manager: "TeamManager") -> list[Tool]:
         TeamTaskCreateTool(manager),
         TeamTaskUpdateTool(manager),
         TeamTaskListTool(manager),
+        TeamMergeTool(manager),
     ]

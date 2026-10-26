@@ -684,6 +684,27 @@ class TeamManager:
         if runtime is not None:
             runtime.wake()
 
+    # —— A3 合并（state20）——
+    async def merge_team(self, members: list[str] | None = None) -> "MergeResult":
+        """把指定成员（缺省当前组可合并成员）合并到汇聚分支。"""
+        from codepilot.teams.merge import (
+            MergeResult, TeamMerger, select_mergeable,
+        )
+        from codepilot.worktree.git import GitRunner
+
+        registry, _, team = self._require_team()
+        if members is None:
+            refs = select_mergeable(registry.list())
+        else:
+            refs = [registry.resolve(n) for n in members]
+        if not refs:
+            return MergeResult(
+                ok=False, target="", merged_members=(),
+                committed_members=(), error="没有可合并成员")
+        git = GitRunner(self._workspace)
+        merger = TeamMerger(self._workspace, git)
+        return await asyncio.to_thread(merger.merge_members, team.name, refs)
+
     # —— 展示 ——
     def lead_context(self) -> str:
         if self._team_name is None or self._registry is None:
