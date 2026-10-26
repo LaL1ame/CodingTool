@@ -95,9 +95,18 @@ class TeamStorage:
     def mailbox_lock_path(self, team: str, owner: str) -> Path:
         return self.mailbox_path(team, owner).with_suffix(".lock")
 
+    def context_dir(self, team: str) -> Path:
+        return self.team_dir(team) / "context"
+
+    def member_context_path(self, team: str, member: str) -> Path:
+        """成员对话历史 JSONL（state20 A2 跨进程上下文恢复用）。"""
+        validate_member_name(member)
+        return (self.context_dir(team) / f"{member}.jsonl").resolve()
+
     def ensure_team_layout(self, team: str) -> Path:
         path = self.team_dir(team)
-        for sub in (path, path / "locks", path / "members", path / "mailboxes"):
+        for sub in (path, path / "locks", path / "members", path / "mailboxes",
+                    path / "context"):
             sub.mkdir(parents=True, exist_ok=True)
         return path
 

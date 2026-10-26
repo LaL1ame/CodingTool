@@ -88,6 +88,8 @@ class MemberRuntime:
         phase: MemberPhase | None = None,
         clock: Callable[[], float] = time.time,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        initial_msgs: list[dict] | None = None,
+        protocol: str = "anthropic",
     ) -> None:
         self._member = member
         self._team = team
@@ -99,7 +101,11 @@ class MemberRuntime:
         self._phase = phase or MemberPhase()
         self._clock = clock
         self._sleep = sleep
-        self._msgs: list[dict] = []
+        # state20 A2：initial_msgs 为跨进程恢复的历史；否则全新上下文。
+        self._msgs: list[dict] = list(initial_msgs) if initial_msgs else []
+        self._protocol = protocol
+        # 已落盘的 _msgs 条数游标（增量持久化，幂等）。
+        self._persisted_msgs_len = len(self._msgs)
         self._wake = asyncio.Event()
         self._stopped = False
         self._task: asyncio.Task | None = None
@@ -276,26 +282,44 @@ class MemberRuntime:
         self._set_status(TeamMemberStatus.IDLE)
 
     # —— 单回合 Agent 执行 ——
+    def _persist_msgs(self) -> None:
+        """增量落盘 _msgs 到成员上下文（state20 A2）。失败只记日志，不影响运行。"""
+        try:
+            from codepilot.teams.context import save_member_msgs
+
+            self._persisted_msgs_len = save_member_msgs(
+                self._manager.storage, self._team.name, self._member.name,
+                self._msgs, persisted_len=self._persisted_msgs_len,
+                protocol=self._protocol)
+        except Exception as e:  # noqa: BLE001 - 落盘失败不打断成员
+            logger.warning("成员 %s 上下文落盘失败: %s", self._member.name, e)
+
     async def _run_agent(self, prompt: str) -> AgentOutcome:
         self._msgs.append({"role": "user", "content": prompt})
         chunks: list[str] = []
         try:
             async for delta in self._agent.run(self._msgs):
                 if delta.error:
+                    self._persist_msgs()
                     return AgentOutcome("".join(chunks), error=delta.error)
                 if delta.cancelled:
+                    self._persist_msgs()
                     return AgentOutcome("".join(chunks), error="已取消")
                 if delta.text:
                     chunks.append(delta.text)
                 if delta.paused:
+                    self._persist_msgs()
                     return AgentOutcome(
                         "".join(chunks).strip(),
                         paused_reason=delta.pause_reason or "paused")
         except asyncio.CancelledError:
+            self._persist_msgs()
             raise
         except Exception as e:  # noqa: BLE001 - 转成失败结果
             logger.exception("成员 %s Agent 回合异常", self._member.name)
+            self._persist_msgs()
             return AgentOutcome("".join(chunks).strip(), error=str(e))
+        self._persist_msgs()
         return AgentOutcome("".join(chunks).strip())
 
     # —— 审批 ——

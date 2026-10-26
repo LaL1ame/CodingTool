@@ -478,6 +478,17 @@ class TeamManager:
             hooks=self._shared.shared_hooks,
             stall_enabled=self._shared.stall_enabled,
         )
+        # state20 A2：复用派生时自动恢复成员历史；无/损坏 → 全新上下文。
+        protocol = getattr(provider.config, "protocol", "anthropic")
+        initial_msgs = None
+        try:
+            from codepilot.teams.context import load_member_msgs
+
+            initial_msgs = load_member_msgs(
+                self._storage, team.name, member.name, protocol=protocol)
+        except Exception as e:  # noqa: BLE001 - 恢复失败降级全新
+            logger.warning("成员 %s 恢复失败，降级全新: %s", member.name, e)
+            initial_msgs = None
         return MemberRuntime(
             member=member,
             team=team,
@@ -488,6 +499,8 @@ class TeamManager:
             settings=self._settings,
             phase=phase,
             clock=self._clock,
+            initial_msgs=initial_msgs,
+            protocol=protocol,
         )
 
     # —— 状态与事件 ——

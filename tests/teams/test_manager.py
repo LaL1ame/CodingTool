@@ -301,3 +301,40 @@ async def test_spawn_builds_real_agent(
     assert member.status is TeamMemberStatus.IDLE
     await mgr.terminate_member("alice")
     await mgr.shutdown()
+
+
+async def test_spawn_restores_member_context(
+    settings: TeamSettings, tmp_path: Path,
+):
+    """state20 A2：预写成员上下文 → 重新派生时自动恢复历史。"""
+    from codepilot.teams.context import save_member_msgs
+    from codepilot.teams.storage import TeamStorage
+
+    worktree = FakeWorktree(tmp_path / "wt")
+    mgr = _manager(settings, tmp_path, worktree)
+    mgr.create_team("alpha")
+    history = [
+        {"role": "user", "content": "之前任务"},
+        {"role": "assistant", "content": "之前结论"},
+    ]
+    storage = TeamStorage(settings.root, settings)
+    save_member_msgs(storage, "alpha", "alice", history, protocol="anthropic")
+
+    await mgr.spawn_member(name="alice", role="coder")
+    runtime = mgr._runtimes["alice"]
+    assert len(runtime._msgs) == 2, "应恢复历史上下文"
+    assert runtime._msgs[1]["content"] == "之前结论"
+    assert runtime._persisted_msgs_len == 2
+    await mgr.shutdown()
+
+
+async def test_spawn_without_context_is_fresh(
+    settings: TeamSettings, tmp_path: Path,
+):
+    """无上下文时重新派生 → 全新上下文（与 state19 一致）。"""
+    worktree = FakeWorktree(tmp_path / "wt")
+    mgr = _manager(settings, tmp_path, worktree)
+    mgr.create_team("alpha")
+    await mgr.spawn_member(name="alice", role="coder")
+    assert mgr._runtimes["alice"]._msgs == []
+    await mgr.shutdown()
