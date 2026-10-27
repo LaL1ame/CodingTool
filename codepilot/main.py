@@ -32,6 +32,8 @@ from codepilot.teams import TeamSettingsError, load_team_settings
 from codepilot.teams.manager import TeamManager
 from codepilot.teams.tools_lead import build_lead_tools
 
+logger = logging.getLogger("codepilot")
+
 
 def find_config() -> Path:
     cwd = Path.cwd() / "config.yaml"
@@ -257,9 +259,22 @@ def main() -> None:
         max_rounds=agent_config.max_rounds,
     )
     team_manager.load_current()
+
+    # —— A4 coordinator(state20)：双锁开启时收窄 Lead 工具面 + 注入专注提示 ——
+    from codepilot.teams.coordinator import (
+        coordinator_context_block,
+        coordinator_enabled,
+        coordinator_tool_filter,
+    )
+
+    coordinator_state = coordinator_enabled(team_settings)
     lead_registry = registry.clone()
-    for team_tool in build_lead_tools(team_manager):
+    for team_tool in coordinator_tool_filter(
+            build_lead_tools(team_manager), coordinator_state):
         lead_registry.register(team_tool)
+    if coordinator_state.enabled:
+        logger.info("coordinator 已开启（%s），Lead 写工具已移除",
+                    coordinator_state.source)
 
     def _subagent_blocks() -> list[str]:
         blocks = []
@@ -267,6 +282,9 @@ def main() -> None:
         if block:
             blocks.append(block)
         blocks.append(team_manager.lead_context())
+        cblock = coordinator_context_block(coordinator_state)
+        if cblock:
+            blocks.append(cblock)
         return blocks
 
     agent = Agent(provider=provider, registry=lead_registry, workspace=workspace,

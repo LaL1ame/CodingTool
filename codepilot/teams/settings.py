@@ -32,6 +32,12 @@ from codepilot.teams.model import (
 DEFAULT_ROOT = Path.home() / ".config" / "codepilot" / "teams"
 
 
+def _bool(raw: object, field: str) -> bool:
+    if not isinstance(raw, bool):
+        raise TeamSettingsError(f"team.{field} 必须是布尔值: {raw!r}")
+    return raw
+
+
 def _number(raw: object, field: str, *, integer: bool = False) -> float | int:
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         raise TeamSettingsError(f"team.{field} 必须是数字: {raw!r}")
@@ -94,6 +100,9 @@ def load_team_settings(config_path: str | Path) -> TeamSettings:
             section.get("max_unread_per_wakeup", 20),
             "max_unread_per_wakeup", integer=True),
         default_backend=backend,
+        coordinator_enabled=_bool(
+            section.get("coordinator_enabled", False),
+            "coordinator_enabled"),
     )
 
 

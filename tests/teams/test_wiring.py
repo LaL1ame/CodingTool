@@ -74,3 +74,50 @@ def test_mcp_extra_registries_receive_tools():
 def test_fork_parent_visible_filters_team_tools():
     names = {"read", "write", "team_spawn", "task_list"}
     assert filter_team_tools(names) == {"read", "write"}
+
+
+def test_coordinator_lead_registry_removes_write(
+    settings: TeamSettings, tmp_path: Path,
+):
+    """A4：coordinator 双开时，Lead 工具面无 write/edit，保留 run/team_*。"""
+    from codepilot.teams.coordinator import (
+        coordinator_context_block,
+        coordinator_enabled,
+        coordinator_tool_filter,
+    )
+
+    base = ToolRegistry()
+    manager = TeamManager(
+        settings, workspace=tmp_path, base_registry=base, roles={},
+        provider=SimpleNamespace(config=SimpleNamespace(model="m")))
+    lead_tools = build_lead_tools(manager)
+    on = coordinator_enabled(
+        SimpleNamespace(coordinator_enabled=True),
+        env={"CODEPILOT_COORDINATOR": "1"})
+    filtered = coordinator_tool_filter(lead_tools, on)
+    names = {t.name for t in filtered}
+    assert "write" not in names and "edit" not in names
+    assert "team_merge" in names
+    block = coordinator_context_block(on)
+    assert "coordinator" in block and "team_merge" in block
+
+
+def test_coordinator_off_keeps_full_tools(
+    settings: TeamSettings, tmp_path: Path,
+):
+    """任一锁关：工具面完整（state19 行为）。"""
+    from codepilot.teams.coordinator import (
+        coordinator_context_block,
+        coordinator_enabled,
+        coordinator_tool_filter,
+    )
+
+    manager = TeamManager(
+        settings, workspace=tmp_path, base_registry=ToolRegistry(), roles={},
+        provider=SimpleNamespace(config=SimpleNamespace(model="m")))
+    lead_tools = build_lead_tools(manager)
+    off = coordinator_enabled(
+        SimpleNamespace(coordinator_enabled=False), env={})
+    filtered = coordinator_tool_filter(lead_tools, off)
+    assert {t.name for t in filtered} == {t.name for t in lead_tools}
+    assert coordinator_context_block(off) == ""

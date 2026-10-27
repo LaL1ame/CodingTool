@@ -88,6 +88,7 @@ class TeamSettings:
     message_summary_chars: int = 120
     max_unread_per_wakeup: int = 20
     default_backend: str = "auto"
+    coordinator_enabled: bool = False   # state20 A4：coordinator 能力开关（第一把锁）
 
 
 @dataclass(frozen=True)

@@ -45,6 +45,19 @@ team:
     assert s.lock_timeout_seconds == 2.0
     assert s.message_summary_chars == 30
     assert s.default_backend == "inprocess"
+    assert s.coordinator_enabled is False
+
+
+def test_coordinator_enabled_override(tmp_path: Path):
+    path = _write(tmp_path, "team:\n  coordinator_enabled: true\n")
+    s = load_team_settings(path)
+    assert s.coordinator_enabled is True
+
+
+def test_coordinator_non_bool_rejected(tmp_path: Path):
+    with pytest.raises(TeamSettingsError):
+        load_team_settings(_write(
+            tmp_path, "team:\n  coordinator_enabled: 1\n"))
 
 
 @pytest.mark.parametrize("text", [
