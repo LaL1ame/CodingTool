@@ -78,6 +78,18 @@ class TeamMerger:
         else:
             self._git.checkout_branch(self.workspace, target)
 
+    def _conflict_files(self, path) -> tuple[str, ...]:
+        """从 git status --porcelain 提取未合并(冲突)文件。"""
+        out = self._git.status_porcelain(path)
+        files = []
+        for line in out.splitlines():
+            if not line or len(line) < 3:
+                continue
+            # 冲突行形如 "UU path"
+            if line[0] == "U" or line[1] == "U":
+                files.append(line[3:].strip())
+        return tuple(files)
+
     def merge_members(
         self, team: str, members: list[MemberRef], *, base: str = "HEAD",
     ) -> MergeResult:
@@ -105,7 +117,7 @@ class TeamMerger:
         for ref in members:
             conflicted = self._git.merge(self.workspace, ref.branch)
             if conflicted:
-                files = self._git.diff_names(self.workspace, base)
+                files = self._conflict_files(self.workspace)
                 try:
                     self._git.abort_merge(self.workspace)
                 except Exception as e:  # noqa: BLE001
