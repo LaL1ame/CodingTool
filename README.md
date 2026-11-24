@@ -1,12 +1,39 @@
-# CodePilot
+<p align="center"><img src="screenshot/demo.png" alt="CodePilot demo" width="720"></p>
 
-> 终端里的多智能体 AI 编程助手 —— 模型通过工具真实读写文件、执行命令、搜索代码，自主完成多步编码任务。
+<h1 align="center">CodePilot</h1>
 
-[![CI](https://github.com/LaL1ame/CodingTool/actions/workflows/test.yml/badge.svg)](https://github.com/LaL1ame/CodingTool/actions/workflows/test.yml)
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Tests](https://img.shields.io/badge/tests-943%20passed-brightgreen)
+<p align="center">
+  <strong>终端里的多智能体 AI 编程助手</strong><br>
+  模型通过工具真实读写文件、执行命令、搜索代码，自主完成多步编码任务
+</p>
 
-CodePilot 是一款运行在终端里的 AI 编程代理（Agentic Coding Tool）：你在终端描述任务，它像一位工程师一样自主规划步骤、读写文件、搜索代码、执行命令，并通过 TUI 把整个过程实时呈现给你。协议层与 Agent 框架均为自研（不依赖 LangChain 等现成框架）。
+<p align="center">
+  <a href="https://github.com/LaL1ame/CodingTool/actions/workflows/test.yml"><img src="https://github.com/LaL1ame/CodingTool/actions/workflows/test.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/tests-943%20passed-brightgreen" alt="tests">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"></a>
+</p>
+
+<p align="center">简体中文 ｜ <a href="README_EN.md">English</a></p>
+
+---
+
+CodePilot 是一款运行在终端里的 AI 编程代理（Agentic Coding Tool），以你的 Git 仓库为工作区：你描述任务，它自主规划、读写文件、搜索代码、执行命令，并通过 TUI 把整个过程实时呈现。协议层与 Agent 框架均为自研（不依赖 LangChain 等现成框架）。
+
+```text
+$ codepilot
+
+  > 帮我把 login 的密码校验抽成独立函数并补测试
+
+  ● read   codepilot/auth/login.py
+  ● edit   codepilot/auth/login.py
+  ● write  tests/test_login.py
+  ● run    pytest tests/test_login.py
+
+  完成：已抽取 validate_password() 并补充测试。
+
+  ctx 12K/200K (6%)   [DEFAULT]   /plan · /do
+```
 
 ---
 
@@ -31,7 +58,7 @@ CodePilot 是一款运行在终端里的 AI 编程代理（Agentic Coding Tool�
 ### Agent 循环与可靠性
 - ReAct 循环：调用模型 → 执行工具 → 回灌结果 → 再循环，直到任务完成。
 - 六类结构化停止判定：`done / limit / stall / unknown_tool / cancelled / error`，达上限或空转是可续接的暂停点（`/continue` 续跑）。
-- 结果感知空转守卫：用「工具名 + 参数 + 原始结果」三元指纹区分合法轮询与真死循环，不误判、不纵容。
+- 结果感知空转守卫：用「工具名 + 参数 + 原始结果」三元指纹区分合法轮询与真死循环。
 - 副作用工具串行栅栏 + 只读工具并发执行，兼顾安全与速度。
 
 ### 多模型接入（自研协议层）
@@ -39,14 +66,14 @@ CodePilot 是一款运行在终端里的 AI 编程代理（Agentic Coding Tool�
 - 统一的 `Delta` 增量事件模型，界面只消费事件、不感知循环内部。
 
 ### 多智能体协作
-- **SubAgent 委派**：统一 `agent` 工具把子任务交给独立子 Agent（干净上下文 / 受限工具 / 独立权限），角色定义式 + Fork 继承式两种模式。
+- **SubAgent 委派**：统一 `agent` 工具把子任务交给独立子 Agent（干净上下文 / 受限工具 / 独立权限），支持角色定义式与 Fork 继承式。
 - **Git Worktree 隔离**：每个隔离任务一个独立工作目录与分支，生命周期自动管理（24h TTL 清理、fail-closed 不回退主工作区），并行改文件互不覆盖。
 - **Team 团队协作**：主 Agent 作为 Lead 创建长期小组、派生成员并行干活——三套工具面隔离、共享任务板（依赖门控原子领取）、JSONL 邮箱 + 文件锁、审批闭环、跨进程上下文恢复、git 合并收口（冲突自动回滚上报）、coordinator 专注模式。
 
 ### 上下文 / 会话 / 记忆
 - 两层上下文压缩：超阈值工具结果落盘 + LLM 结构化摘要；不引 tokenizer 的「锚点 + 增量」token 估算。
 - JSONL 会话落盘 + 按协议重建请求形态的恢复（`-c` / `--resume` 无缝续接，30 天过期自动清理）。
-- 长期记忆：`.rules` 指令注入 + 每轮后台自动提炼四类笔记（`preference / correction / project / reference`）。
+- 长期记忆：`.rules` 指令注入 + 每轮后台自动提炼四类笔记。
 
 ### 扩展生态
 - **Skill**：三级存放（项目 > 用户 > 内置）、两阶段注入、工具白名单动态收窄、`/reload` 热重载。
@@ -60,38 +87,57 @@ CodePilot 是一款运行在终端里的 AI 编程代理（Agentic Coding Tool�
 
 ## 快速开始
 
-### 环境要求
+### 1. 环境要求
 - Python 3.10+（CI 运行于 3.11）
 - 一个大模型 API Key（Anthropic Claude 或 OpenAI 兼容端点）
 
-### 安装
+### 2. 克隆与安装
 ```bash
 git clone https://github.com/LaL1ame/CodingTool.git
 cd CodingTool
 pip install -e .
 ```
 
-### 配置
+### 3. 配置你自己的 API Key
+
+CodePilot 需要一个模型 API Key 才能运行。**仓库不含任何密钥**——`config.yaml` 已被 `.gitignore` 忽略，你的 Key 只会留在本地，不会被提交。
+
+① 复制配置模板：
+
 ```bash
 cp config.example.yaml config.yaml
 ```
-编辑 `config.yaml`，填入你的 Provider 与 API Key：
+
+② 编辑 `config.yaml`，把 `api_key` 换成你自己的（Anthropic Claude）：
 
 ```yaml
 providers:
   - name: "Claude Sonnet"
-    protocol: anthropic          # 或 openai
+    protocol: anthropic                # Anthropic 官方协议
     model: claude-sonnet-4-6
     base_url: https://api.anthropic.com
-    api_key: sk-ant-your-key-here
+    api_key: sk-ant-your-key-here      # ← 换成你的 Key
 ```
 
-### 运行
+③ 或使用 OpenAI 兼容端点（国内中转 / DeepSeek 等均可）：
+
+```yaml
+providers:
+  - name: "OpenAI 兼容"
+    protocol: openai
+    model: gpt-4o
+    base_url: https://api.openai.com   # 或你的中转地址
+    api_key: sk-your-key-here
+```
+
+> 💡 配了多个 Provider 时，启动会让你选一个。
+
+### 4. 运行
 ```bash
-codepilot            # 在任意 Git 仓库根目录启动
-codepilot -c         # 继续最近一次会话
-codepilot --resume   # 列出历史会话选择恢复
-codepilot --new      # 强制新开会话
+codepilot          # 在任意 Git 仓库根目录启动
+codepilot -c       # 继续最近一次会话
+codepilot --resume # 列出历史会话选择恢复
+codepilot --new    # 强制新开会话
 ```
 
 ---
@@ -177,7 +223,7 @@ codepilot/
 ## 已知边界
 
 - 成员 Agent 是同进程协程（非真实进程隔离）；无跨机器 / 跨网络协作。
-- MCP 的真实 npx/node server 在 Windows 下的 spawn 兼容尚未打通（非协议缺陷，属已知限制）。
+- MCP 的真实 npx/node server 在 Windows 下的 spawn 兼容尚未打通（属已知限制，非协议缺陷）。
 - 本地单机 CLI 工具，无服务端、无多用户共享。
 
 ---
@@ -186,12 +232,14 @@ codepilot/
 
 极简依赖——运行时仅 3 个：
 
-- `textual` —— TUI 框架
-- `httpx` —— HTTP 客户端（模型 API 流式请求）
-- `pyyaml` —— 配置解析
+- [`textual`](https://github.com/Textualize/textual) —— TUI 框架
+- [`httpx`](https://github.com/encode/httpx) —— HTTP 客户端（模型 API 流式请求）
+- [`pyyaml`](https://github.com/yaml/pyyaml) —— 配置解析
 
 开发依赖：`pytest`、`pytest-asyncio`。
 
 ---
 
-> 说明：本仓库当前尚无 LICENSE 文件，属个人学习 / 作品集项目。
+## License
+
+本项目基于 [MIT License](LICENSE) 开源。
