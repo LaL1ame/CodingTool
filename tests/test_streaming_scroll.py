@@ -161,8 +161,13 @@ async def test_scroll_position_survives_writes():
         assert chat.scroll_y == pos, (
             f"上滚后写入不应拽回底部 (before={pos}, now={chat.scroll_y}, max={chat.max_scroll_y})")
         # 回到底部后,重新跟随
-        chat.scroll_end(animate=False)
-        await pilot.pause(0.03)
+        # immediate=True 与 App 自动跟随一致(同步落地);滚动落地与流式收尾均为异步,
+        # 故轮询直到回到底部,而非固定 pause(消除 CI/负载下的时序抖动)
+        chat.scroll_end(animate=False, immediate=True)
+        for _ in range(100):
+            await pilot.pause(0.03)
+            if chat.scroll_y >= chat.max_scroll_y - 1:
+                break
         assert chat.scroll_y >= chat.max_scroll_y - 1
         # 等生成完全结束再退出(避免 worker 取消的 CancelledError 噪音)
         for _ in range(120):
